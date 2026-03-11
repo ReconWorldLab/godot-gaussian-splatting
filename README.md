@@ -8,6 +8,12 @@ Maintainer: ReconWorldLab
 
 It imports supported 3D Gaussian Splat `.ply` assets, places them in a scene through `GaussianSplatNode`, and composites the result with the regular 3D scene using scene depth.
 
+## Demo
+
+![Demo screenshot](image.png)
+
+- Video: [Bilibili - BV1NRwFzYEVc](https://www.bilibili.com/video/BV1NRwFzYEVc)
+
 ## Features
 
 - Import supported Gaussian Splat `.ply` files as Godot resources.

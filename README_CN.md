@@ -8,6 +8,12 @@
 
 它可以导入符合要求的 3D Gaussian Splat `.ply` 资源，通过 `GaussianSplatNode` 放入 Godot 场景，并利用场景深度与常规 3D 内容进行合成。
 
+## 演示
+
+![演示截图](image.png)
+
+- 视频演示：[Bilibili - BV1NRwFzYEVc](https://www.bilibili.com/video/BV1NRwFzYEVc)
+
 ## 功能特性
 
 - 将支持的 Gaussian Splat `.ply` 文件导入为 Godot 资源。
