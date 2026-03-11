@@ -69,10 +69,11 @@ void main() {
     vec4 gsplat_color = imageLoad(gsplat_tex, pixel);
     float gsplat_alpha = gsplat_color.a;
     float gsplat_view_depth = imageLoad(gsplat_depth_tex, pixel).r;
+    bool has_gsplat_depth = gsplat_view_depth < INVALID_DEPTH;
 
     bool has_scene_depth = false;
     float scene_view_depth = get_scene_view_depth(pixel, has_scene_depth);
-    bool depth_rejected = has_scene_depth && gsplat_view_depth < INVALID_DEPTH && gsplat_alpha >= p.depth_test_min_alpha && gsplat_view_depth > scene_view_depth + p.depth_bias;
+    bool depth_rejected = has_scene_depth && has_gsplat_depth && gsplat_alpha >= p.depth_test_min_alpha && gsplat_view_depth > scene_view_depth + p.depth_bias;
 
     int debug_view = int(p.debug_view + 0.5);
     if (debug_view == 1) {
@@ -98,6 +99,10 @@ void main() {
     }
 
     if (gsplat_alpha <= p.alpha_cutoff) {
+        return;
+    }
+
+    if (has_scene_depth && !has_gsplat_depth) {
         return;
     }
 

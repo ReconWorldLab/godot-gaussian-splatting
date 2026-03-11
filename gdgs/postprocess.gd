@@ -8,6 +8,7 @@ const MANAGER_SCRIPT := preload("res://addons/gdgs/rendering/GaussianRenderManag
 @export_range(0.0, 1.0, 0.001) var alpha_cutoff := 0.01
 @export_range(0.0, 1.0, 0.001) var depth_bias := 0.05
 @export_range(0.0, 1.0, 0.001) var depth_test_min_alpha := 0.05
+@export_range(0.0, 1.0, 0.001) var depth_capture_alpha = 0.5
 @export_enum("Composite", "GS Alpha", "GS Color", "GS Depth", "Scene Depth", "Depth Reject Mask") var debug_view := 0
 
 var rd: RenderingDevice
@@ -59,7 +60,8 @@ func _render_callback(_effect_callback_type: int, render_data: RenderData) -> vo
 			size,
 			camera_data["transform"],
 			camera_data["projection"],
-			camera_data["world_position"]
+			camera_data["world_position"],
+			_get_depth_capture_alpha()
 		)
 		if gsplat_result.is_empty():
 			continue
@@ -163,6 +165,11 @@ func _projection_to_column_major_floats(matrix: Projection) -> Array:
 		matrix.z[0], matrix.z[1], matrix.z[2], matrix.z[3],
 		matrix.w[0], matrix.w[1], matrix.w[2], matrix.w[3]
 	]
+
+func _get_depth_capture_alpha() -> float:
+	if depth_capture_alpha == null:
+		return 0.5
+	return clampf(float(depth_capture_alpha), 0.0, 1.0)
 
 func initialize_compute_shader() -> void:
 	rd = RenderingServer.get_rendering_device()

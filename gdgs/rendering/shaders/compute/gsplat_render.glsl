@@ -43,6 +43,8 @@ layout(r32f, set = 0, binding = 5) uniform restrict writeonly image2D rasterized
 layout(push_constant) restrict readonly uniform PushConstants {
 	float heatmap_factor;
     uint target_tile_id;
+    float depth_capture_alpha;
+    float _pad0;
 };
 
 shared vec3[WORKGROUP_SIZE] conic_tile;
@@ -104,12 +106,17 @@ void main() {
             // if (power > 0.0) continue; // Branching is slowwwwww
             float alpha = color.a * exp(power);
             // if (alpha < MIN_ALPHA) continue;
-            if (alpha > DEPTH_ALPHA && first_hit_depth == INVALID_DEPTH) {
+            float next_t = t * (1.0 - alpha);
+            if (
+                alpha > DEPTH_ALPHA &&
+                first_hit_depth == INVALID_DEPTH &&
+                (1.0 - next_t) >= depth_capture_alpha
+            ) {
                 first_hit_depth = splat_depth;
             }
 
             blended_color += color.rgb * alpha * t;
-            t *= (1.0 - alpha);
+            t = next_t;
         }
 
         // We add up all the alpha across the block; if it is greater than MIN_FACTOR, the

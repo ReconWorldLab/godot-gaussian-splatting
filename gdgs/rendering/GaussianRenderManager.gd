@@ -30,6 +30,7 @@ class RenderState:
 	var camera_transform: Projection
 	var camera_push_constants := PackedByteArray()
 	var camera_world_position := Vector3.ZERO
+	var depth_capture_alpha := 0.5
 	var needs_gpu_rebuild := true
 	var needs_splat_upload := false
 	var needs_instance_upload := false
@@ -109,7 +110,8 @@ func render_for_compositor(
 	texture_size: Vector2i,
 	camera_transform: Transform3D,
 	camera_projection: Projection,
-	camera_world_position: Vector3
+	camera_world_position: Vector3,
+	depth_capture_alpha: float = 0.5
 ) -> Dictionary:
 	if _pending_gpu_cleanup:
 		_cleanup_all_gpu_internal()
@@ -125,6 +127,7 @@ func render_for_compositor(
 	var state := _get_or_create_render_state(safe_size)
 	_update_camera_from_transform(state, camera_transform, camera_projection)
 	state.camera_world_position = camera_world_position
+	state.depth_capture_alpha = clampf(depth_capture_alpha, 0.0, 1.0)
 
 	if state.context == null or state.needs_gpu_rebuild:
 		_rebuild_gpu_internal(state)
@@ -458,7 +461,11 @@ func _rasterize_internal(state: RenderState) -> void:
 	state.context.compute_list_end()
 
 	compute_list = state.context.compute_list_begin()
-	state.pipelines["gsplat_render"].call(state.context, compute_list, RenderingContext.create_push_constant([0.0, -1]))
+	state.pipelines["gsplat_render"].call(
+		state.context,
+		compute_list,
+		RenderingContext.create_push_constant([0.0, -1, state.depth_capture_alpha, 0.0])
+	)
 	state.context.compute_list_end()
 
 func _cleanup_gpu_internal(state: RenderState) -> void:
