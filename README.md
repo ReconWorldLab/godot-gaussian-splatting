@@ -27,6 +27,10 @@ Versioning note: the historical `1.0` release is normalized here as `1.0.0`.
 - Fixed the compositor/Vulkan projection-sign bug where `RenderData` can provide a negative `projection.y.y` to encode a render-target Y flip, which previously inverted the Y clamp range used during covariance projection.
 - Bumped the Gaussian importer format version to force resource regeneration in Godot projects that still carry stale imported `.res` data.
 
+| Before 2.1.0 | After 2.1.0 |
+| --- | --- |
+| ![Before 2.1.0](samples/media/before_2.1.0.png) | ![After 2.1.0](samples/media/after_2.1.0.png) |
+
 ### 2.0.0
 
 - Reorganized the repository into the shipping layout: `addons/gdgs`, `docs`, and `samples`.
