@@ -4,7 +4,7 @@ Maintainer: ReconWorldLab
 
 [Chinese README](README_CN.md)
 
-Current plugin version: `2.0.0`
+Current plugin version: `2.1.0`
 
 `gdgs` is a Godot 4 Gaussian Splatting plugin built around `CompositorEffect` and compute shaders.
 
@@ -19,6 +19,13 @@ It imports supported 3D Gaussian Splat assets, places them in a scene through `G
 ## Version History
 
 Versioning note: the historical `1.0` release is normalized here as `1.0.0`.
+
+### 2.1.0
+
+- Fixed the screen-space covariance projection regression that could rotate splats incorrectly in the Godot 4 compositor path.
+- Corrected the 2D covariance projection chain to use `screen_transform = jacobian * mat3(view_matrix)` and `cov_2d = screen_transform * cov_3d * transpose(screen_transform)`.
+- Fixed the compositor/Vulkan projection-sign bug where `RenderData` can provide a negative `projection.y.y` to encode a render-target Y flip, which previously inverted the Y clamp range used during covariance projection.
+- Bumped the Gaussian importer format version to force resource regeneration in Godot projects that still carry stale imported `.res` data.
 
 ### 2.0.0
 
@@ -94,6 +101,23 @@ After installation, the plugin root should be available at `res://addons/gdgs`.
 - Imported Gaussian data is centered around its average position during resource build, so scenes start closer to the origin by default.
 - A newly added `GaussianSplatNode` applies a one-time default Z correction when it enters the tree with the identity orientation. This keeps duplicated and serialized nodes from receiving the correction twice.
 - If you replace the source asset contents, reimport it in Godot so the generated resource stays in sync.
+
+## 2.1.0 Bug Fix Notes
+
+The main rendering issue fixed in `2.1.0` was not in Godot's camera matrices themselves, but in how the plugin projected 3D Gaussian covariance into screen space inside `gsplat_projection.glsl`.
+
+Cause:
+- The previous shader mixed matrix order in the 2D covariance projection path, which made the screen-space covariance more sensitive to view rotation and instance transforms than it should have been.
+- In the compositor path, Godot's `RenderData` can provide a projection matrix whose `projection.y.y` is negative to encode the render-target Y flip used by Vulkan/Forward+.
+- The old shader reused that signed Y value both for focal scaling and for FOV clamp bounds. The focal term must keep the sign, but the clamp bounds must stay positive. Reusing the signed value inverted the Y clamp range and skewed the projected covariance orientation.
+
+Fix:
+- Keep the signed focal scale from the projection matrix so screen-space Y continues to match Godot's compositor path.
+- Use `abs(projection_matrix[0][0..1][1])` when deriving the FOV extents used by the covariance clamp.
+- Build the projection as `screen_transform = jacobian * mat3(view_matrix)`.
+- Compute the final 2D covariance as `cov_2d = screen_transform * cov_3d * transpose(screen_transform)`.
+
+If your project already imported Gaussian assets before updating to `2.1.0`, open the project once after upgrading so Godot can reimport the generated Gaussian resources.
 
 ## Post Process Parameters
 

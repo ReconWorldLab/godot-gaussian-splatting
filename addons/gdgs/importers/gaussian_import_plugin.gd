@@ -18,7 +18,7 @@ func _get_importer_name() -> String:
 	return "gaussian.splat.importer"
 
 func _get_format_version() -> int:
-	return 4
+	return 5
 
 func _get_visible_name() -> String:
 	return "Gaussian Splat (.ply/.compressed.ply/.splat/.sog)"

@@ -135,23 +135,22 @@ vec3 project_covariance(in mat3 covariance_3d, in float scale_modifier, in vec3 
 	const mat3 cov_3d = covariance_3d * scale_modifier*scale_modifier;
 	// Godot camera space looks down -Z, so use positive forward depth here.
 	vec2 tan_fov_inv = vec2(projection_matrix[0][0], projection_matrix[1][1]);
-	vec2 focal = dims * 0.5 * tan_fov_inv;
-	vec2 tan_fov = 1.0 / tan_fov_inv;
+	vec2 focal = vec2(dims - 1) * 0.5 * tan_fov_inv;
+	// RenderData projections can encode a Y flip in projection_matrix[1][1].
+	// Keep that sign in the focal scale, but use absolute FOV extents for clamping.
+	vec2 tan_fov = 1.0 / abs(tan_fov_inv);
 	float depth_inv = -1.0 / mean.z;
 	focal *= depth_inv;
 
 	mean.xy = clamp(mean.xy * depth_inv, -tan_fov * 1.3, tan_fov * 1.3);
+	mat3 view_linear = mat3(view_matrix);
 	mat3 jacobian = mat3(
-		focal.x, 0, focal.x * mean.x,
-		0, focal.y, focal.y * mean.y,
-		0, 0, 0);
-	mat3 inv_view = transpose(mat3(view_matrix));
-	// mat3 inv_view = (mat3(view_matrix));
-	mat3 b = inv_view * transpose(jacobian);
-	// mat3 cov_2d = b * cov_3d * transpose(b);
-	mat3 cov_2d = transpose(b) * cov_3d * b;
+		focal.x, 0, 0,
+		0, focal.y, 0,
+		focal.x * mean.x, focal.y * mean.y, 0);
+	mat3 screen_transform = jacobian * view_linear;
+	mat3 cov_2d = screen_transform * cov_3d * transpose(screen_transform);
 	return vec3(cov_2d[0][0] + 0.3, cov_2d[0][1], cov_2d[1][1] + 0.3);
-	// return vec3(0.3, 0.3, 0.3);
 }
 
 uvec4 get_rect(in vec2 image_pos, in float radius, in uvec2 grid_size) {
