@@ -29,8 +29,10 @@ func render_for_compositor(
 	state.camera_world_position = camera_world_position
 	state.depth_capture_alpha = clampf(depth_capture_alpha, 0.0, 1.0)
 
+	var unique_data_size := scene_registry.get_point_data_byte().size()
+
 	if state.context == null or state.needs_gpu_rebuild:
-		state_cache.rebuild_gpu_state(state, point_count, scene_registry.get_instance_count())
+		state_cache.rebuild_gpu_state(state, point_count, unique_data_size, scene_registry.get_instance_count())
 	if state.context == null:
 		return {}
 
