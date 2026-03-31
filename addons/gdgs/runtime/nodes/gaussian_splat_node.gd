@@ -1,4 +1,5 @@
 @tool
+@icon("res://addons/gdgs/editor/icons/gaussian_splat_node.svg")
 extends VisualInstance3D
 class_name GaussianSplatNode
 
@@ -139,5 +140,6 @@ func _get_manager() -> Node:
 	return tree.root.get_node_or_null(MANAGER_NODE_NAME)
 
 func _notification(what: int) -> void:
-	if what == NOTIFICATION_TRANSFORM_CHANGED and is_inside_tree():
+	if (what == NOTIFICATION_TRANSFORM_CHANGED 
+		or what == NOTIFICATION_VISIBILITY_CHANGED) and is_inside_tree():
 		_mark_manager_transform_dirty()

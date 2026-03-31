@@ -74,7 +74,7 @@ layout (std430, set = 0, binding = 5) restrict writeonly buffer GridDimensionsBu
 };
 
 layout (std430, set = 0, binding = 6) restrict readonly buffer SplatInstanceIdsBuffer {
-	uint splat_instance_ids[];
+	uvec2 splat_instance_data[]; // x = unique instance id, y = which splat data to use
 };
 
 layout (std430, set = 0, binding = 7) restrict readonly buffer InstanceTransformsBuffer {
@@ -166,10 +166,18 @@ void main() {
 	if (id >= uint(point_count)) return;
 	
 	barrier();
-	const Splat splat = splat_buffer[id];
-	uint instance_id = splat_instance_ids[id];
+	uvec2 instance_data = splat_instance_data[id];
+	uint instance_id = instance_data.x;
+	uint unique_splat_index = instance_data.y;
+	
+	const Splat splat = splat_buffer[unique_splat_index];
 	mat4 model_matrix = instance_model_matrices[instance_id];
 
+	// --- VISIBILITY ---
+	float is_visible = model_matrix[0][3];
+	if (is_visible < 0.5) return;
+	model_matrix[0][3] = 0.0;
+	
 	// --- FRUSTUM CULLING ---
 	mat3 object_linear = mat3(model_matrix);
 	mat3 world_covariance = object_linear * DECODE_COVARIANCE(splat.covariance) * transpose(object_linear);

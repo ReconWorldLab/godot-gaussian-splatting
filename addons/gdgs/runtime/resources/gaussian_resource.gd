@@ -1,4 +1,5 @@
 @tool
+@icon("res://addons/gdgs/editor/icons/gaussian_resource.svg")
 extends Resource
 class_name GaussianResource
 

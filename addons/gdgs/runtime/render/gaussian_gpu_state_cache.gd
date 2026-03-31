@@ -77,7 +77,7 @@ func mark_all_render_states_needs_instance_upload(value: bool) -> void:
 	for state in _render_states.values():
 		state.needs_instance_upload = value
 
-func rebuild_gpu_state(state, point_count: int, instance_count: int) -> void:
+func rebuild_gpu_state(state, point_count: int, unique_data_size: int, instance_count: int) -> void:
 	cleanup_state(state)
 	if point_count <= 0:
 		return
@@ -101,13 +101,13 @@ func rebuild_gpu_state(state, point_count: int, instance_count: int) -> void:
 	block_dims[0] = num_partitions
 	block_dims[3] = ceili(num_sort_elements_max / 256.0)
 
-	state.descriptors["splats"] = state.context.create_storage_buffer(point_count * FLOATS_PER_SPLAT * BYTES_PER_FLOAT)
+	state.descriptors["splats"] = state.context.create_storage_buffer(unique_data_size)
 	state.descriptors["culled_splats"] = state.context.create_storage_buffer(point_count * FLOATS_PER_CULLED_SPLAT * BYTES_PER_FLOAT)
 	state.descriptors["grid_dimensions"] = state.context.create_storage_buffer(6 * 4, block_dims.to_byte_array(), RenderingDevice.STORAGE_BUFFER_USAGE_DISPATCH_INDIRECT)
 	state.descriptors["histogram"] = state.context.create_storage_buffer(4 + (1 + 4 * RADIX + num_partitions * RADIX) * 4)
 	state.descriptors["sort_keys"] = state.context.create_storage_buffer(num_sort_elements_max * 4 * 2)
 	state.descriptors["sort_values"] = state.context.create_storage_buffer(num_sort_elements_max * 4 * 2)
-	state.descriptors["splat_instance_ids"] = state.context.create_storage_buffer(point_count * 4)
+	state.descriptors["splat_instance_ids"] = state.context.create_storage_buffer(point_count * 4 * 2)
 	state.descriptors["instance_transforms"] = state.context.create_storage_buffer(instance_count * 16 * BYTES_PER_FLOAT)
 	state.descriptors["uniforms"] = state.context.create_uniform_buffer(8 * 4)
 	state.descriptors["tile_bounds"] = state.context.create_storage_buffer(state.tile_dims.x * state.tile_dims.y * 2 * 4)

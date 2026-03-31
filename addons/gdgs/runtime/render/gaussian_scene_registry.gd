@@ -12,6 +12,7 @@ class NodeEntry:
 	var instance_index := -1
 	var point_data_byte := PackedByteArray()
 	var model_transform: Transform3D = Transform3D.IDENTITY
+	var visible: bool = true
 
 var _splat_nodes: Array[Node] = []
 var _node_entries: Dictionary = {}
@@ -69,6 +70,9 @@ func _sync_scene_resources(force_rebuild: bool) -> Dictionary:
 	var merged_instance_transforms := PackedFloat32Array()
 	var total_point_count := 0
 	var next_instance_index := 0
+	
+	# Keep track of which resources we've already packed into the raw VRAM buffer
+	var unique_resources := {}
 
 	for node in _splat_nodes:
 		if not is_instance_valid(node):
@@ -79,16 +83,31 @@ func _sync_scene_resources(force_rebuild: bool) -> Dictionary:
 		if entry.point_count <= 0:
 			continue
 
+		var gaussian: Resource = node.get("gaussian")
+		var resource_start_index: int
+		
+		# Only upload the splat data if we haven't seen this resource yet
+		if not unique_resources.has(gaussian):
+			resource_start_index = merged_point_data.size() / (FLOATS_PER_SPLAT * BYTES_PER_FLOAT)
+			unique_resources[gaussian] = resource_start_index
+			merged_point_data.append_array(entry.point_data_byte)
+		else:
+			# If we already uploaded it, just get the index where it lives in the GPU buffer
+			resource_start_index = unique_resources[gaussian]
+
+		# Build the indirection array for this specific node (2 integers per point)
+		var node_instance_ids := PackedInt32Array()
+		node_instance_ids.resize(entry.point_count * 2) 
+		for i in range(entry.point_count):
+			node_instance_ids[i * 2] = next_instance_index          # x: Which transform matrix to use
+			node_instance_ids[i * 2 + 1] = resource_start_index + i # y: Which raw splat data to read
+
+		merged_instance_ids.append_array(node_instance_ids)
+		merged_instance_transforms.append_array(_transform_to_column_major_packed_floats(entry.model_transform, entry.visible))
+
 		total_point_count += entry.point_count
 		next_instance_index += 1
-		merged_point_data += entry.point_data_byte
-
-		var node_instance_ids := PackedInt32Array()
-		node_instance_ids.resize(entry.point_count)
-		node_instance_ids.fill(entry.instance_index)
-		merged_instance_ids.append_array(node_instance_ids)
-		merged_instance_transforms.append_array(_transform_to_column_major_packed_floats(entry.model_transform))
-
+	
 	_node_entries = next_entries
 
 	var merged_instance_ids_byte := merged_instance_ids.to_byte_array()
@@ -129,10 +148,12 @@ func _sync_node_transform(node: Node) -> Dictionary:
 		return _sync_scene_resources(false)
 
 	var model_transform := _get_node_transform(node)
-	if entry.model_transform == model_transform:
+	var model_visible := _get_node_visibility(node)
+	if entry.model_transform == model_transform and entry.visible == model_visible:
 		return {}
 
 	entry.model_transform = model_transform
+	entry.visible = model_visible
 	if entry.instance_index < 0 or _instance_count <= 0:
 		return {}
 
@@ -145,6 +166,7 @@ func _sync_node_transform(node: Node) -> Dictionary:
 func _build_node_entry(node: Node, instance_index: int) -> NodeEntry:
 	var entry := NodeEntry.new()
 	entry.model_transform = _get_node_transform(node)
+	entry.visible = _get_node_visibility(node)
 
 	var gaussian: Resource = node.get("gaussian")
 	if gaussian == null:
@@ -176,17 +198,22 @@ func _build_instance_transforms_byte() -> PackedByteArray:
 		var entry: NodeEntry = _node_entries.get(node.get_instance_id(), null)
 		if entry == null or entry.point_count <= 0 or entry.instance_index < 0:
 			continue
-		transforms.append_array(_transform_to_column_major_packed_floats(entry.model_transform))
+		transforms.append_array(_transform_to_column_major_packed_floats(entry.model_transform, entry.visible))
 	return transforms.to_byte_array()
 
 func _get_node_transform(node: Node) -> Transform3D:
 	if node is Node3D:
 		return (node as Node3D).global_transform
 	return Transform3D.IDENTITY
+	
+func _get_node_visibility(node: Node) -> bool:
+	if node is Node3D:
+		return (node as Node3D).is_visible_in_tree()
+	return true
 
-func _transform_to_column_major_packed_floats(transform: Transform3D) -> PackedFloat32Array:
+func _transform_to_column_major_packed_floats(transform: Transform3D, visibility: bool) -> PackedFloat32Array:
 	return PackedFloat32Array([
-		transform.basis.x[0], transform.basis.x[1], transform.basis.x[2], 0.0,
+		transform.basis.x[0], transform.basis.x[1], transform.basis.x[2], 1.0 if visibility else 0.0,
 		transform.basis.y[0], transform.basis.y[1], transform.basis.y[2], 0.0,
 		transform.basis.z[0], transform.basis.z[1], transform.basis.z[2], 0.0,
 		transform.origin.x, transform.origin.y, transform.origin.z, 1.0
