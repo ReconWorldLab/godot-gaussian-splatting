@@ -76,14 +76,36 @@ func _rasterize_state(state, point_count: int) -> void:
 
 	compute_list = state.context.compute_list_begin()
 	for radix_shift_pass in range(4):
-		var sort_push_constant := RenderingDeviceContext.create_push_constant([
-			radix_shift_pass,
-			point_count * MAX_SORT_ELEMENTS_PER_SPLAT * (radix_shift_pass % 2),
-			point_count * MAX_SORT_ELEMENTS_PER_SPLAT * (1 - (radix_shift_pass % 2))
-		])
-		state.pipelines["radix_sort_upsweep"].call(state.context, compute_list, sort_push_constant, [], state.descriptors["grid_dimensions"].rid, 0)
-		state.pipelines["radix_sort_spine"].call(state.context, compute_list, sort_push_constant)
-		state.pipelines["radix_sort_downsweep"].call(state.context, compute_list, sort_push_constant, [], state.descriptors["grid_dimensions"].rid, 0)
+		var radix_input_offset := point_count * MAX_SORT_ELEMENTS_PER_SPLAT * (radix_shift_pass % 2)
+		var radix_output_offset := point_count * MAX_SORT_ELEMENTS_PER_SPLAT * (1 - (radix_shift_pass % 2))
+		state.pipelines["radix_sort_upsweep"].call(
+			state.context,
+			compute_list,
+			RenderingDeviceContext.create_exact_push_constant([
+				radix_shift_pass,
+				radix_input_offset
+			]),
+			[],
+			state.descriptors["grid_dimensions"].rid,
+			0
+		)
+		state.pipelines["radix_sort_spine"].call(
+			state.context,
+			compute_list,
+			RenderingDeviceContext.create_exact_push_constant([radix_shift_pass])
+		)
+		state.pipelines["radix_sort_downsweep"].call(
+			state.context,
+			compute_list,
+			RenderingDeviceContext.create_exact_push_constant([
+				radix_shift_pass,
+				radix_input_offset,
+				radix_output_offset
+			]),
+			[],
+			state.descriptors["grid_dimensions"].rid,
+			0
+		)
 	state.context.compute_list_end()
 
 	compute_list = state.context.compute_list_begin()

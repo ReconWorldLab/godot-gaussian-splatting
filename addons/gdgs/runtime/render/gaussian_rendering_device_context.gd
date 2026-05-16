@@ -125,13 +125,23 @@ func create_pipeline(block_dimensions: Array, descriptor_sets: Array, shader: RI
 		rd.compute_list_add_barrier(compute_list)
 
 static func create_push_constant(data: Array) -> PackedByteArray:
+	return _pack_push_constant(data, true)
+
+static func create_exact_push_constant(data: Array) -> PackedByteArray:
+	return _pack_push_constant(data, false)
+
+static func _pack_push_constant(data: Array, pad_to_16_bytes: bool) -> PackedByteArray:
 	var packed_size := data.size() * 4
 	assert(packed_size <= 128, "Push constant size must be at most 128 bytes.")
 
-	var padding := ceili(packed_size / 16.0) * 16 - packed_size
 	var packed_data := PackedByteArray()
-	packed_data.resize(packed_size + (padding if padding > 0 else 0))
-	packed_data.fill(0)
+	if pad_to_16_bytes:
+		var padding := ceili(packed_size / 16.0) * 16 - packed_size
+		packed_data.resize(packed_size + (padding if padding > 0 else 0))
+		packed_data.fill(0)
+	else:
+		packed_data.resize(packed_size)
+		packed_data.fill(0)
 
 	for i in range(data.size()):
 		match typeof(data[i]):
