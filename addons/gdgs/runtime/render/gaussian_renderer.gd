@@ -79,7 +79,8 @@ func _rasterize_state(state, point_count: int) -> void:
 		var sort_push_constant := RenderingDeviceContext.create_push_constant([
 			radix_shift_pass,
 			point_count * MAX_SORT_ELEMENTS_PER_SPLAT * (radix_shift_pass % 2),
-			point_count * MAX_SORT_ELEMENTS_PER_SPLAT * (1 - (radix_shift_pass % 2))
+			point_count * MAX_SORT_ELEMENTS_PER_SPLAT * (1 - (radix_shift_pass % 2)),
+			0
 		])
 		state.pipelines["radix_sort_upsweep"].call(state.context, compute_list, sort_push_constant, [], state.descriptors["grid_dimensions"].rid, 0)
 		state.pipelines["radix_sort_spine"].call(state.context, compute_list, sort_push_constant)

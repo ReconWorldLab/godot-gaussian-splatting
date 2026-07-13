@@ -35,6 +35,7 @@ layout (push_constant) uniform PushConstant {
     int pass;
     uint in_offset;
     uint out_offset;
+    float _pad;
 };
 
 const uint SHMEM_SIZE = PARTITION_SIZE;

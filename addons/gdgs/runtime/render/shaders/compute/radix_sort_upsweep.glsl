@@ -28,6 +28,8 @@ layout (std430, set = 0, binding = 1) restrict readonly buffer KeysBuffer {
 layout (push_constant) uniform PushConstant {
     int pass;
     uint in_offset;
+    float _pad0;
+    float _pad1;
 };
 
 shared uint local_histogram[RADIX];

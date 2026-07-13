@@ -27,6 +27,9 @@ layout (std430, set = 0, binding = 0) restrict buffer Histogram {
 
 layout (push_constant) uniform PushConstant {
     int pass;
+    float _pad0;
+    float _pad1;
+    float _pad2;
 };
 
 shared uint reduction;
