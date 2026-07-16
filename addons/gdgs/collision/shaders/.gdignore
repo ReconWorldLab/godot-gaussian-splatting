@@ -1,0 +1,4 @@
+# Shader source is read as a plain String and compiled only on the private
+# local RenderingDevice. Excluding it from ResourceImporter avoids coupling
+# it to the editor/global rendering device and keeps headless CPU fallback
+# clean.
