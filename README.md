@@ -4,10 +4,11 @@ Maintainer: ReconWorldLab
 
 [Chinese README](README_CN.md)
 
-Current plugin version: `2.2.0`
+Current plugin version: `3.1.0`
 
 ## News
 
+- 2026-07-16: Version `3.1.0` adds editor-side collision generation: select a `GaussianSplatNode` and generate a `StaticBody3D` collision body directly from the Gaussian data. The pipeline is a GDScript port of the collision approach in [PlayCanvas splat-transform](https://github.com/playcanvas/splat-transform).
 - 2026-04-20: Featured by [GameFromScratch in an article](https://gamefromscratch.com/gaussian-splats-in-godot/).
 - 2026-04-20: Covered by [GameFromScratch on YouTube](https://www.youtube.com/watch?v=VfGYLlDHdrw).
 - 2026-03-31: Merged community contribution [PR #6](https://github.com/ReconWorldLab/godot-gaussian-splatting/pull/6), adding icons, visibility handling, and instancing support.
@@ -40,6 +41,7 @@ These previews show roughly 6 million Gaussian points rendered together inside a
 - Scene integration through `GaussianSplatNode`.
 - Hybrid rendering with regular Godot 3D content through `CompositorEffect`.
 - Depth-aware composition and occlusion against the scene depth buffer.
+- Editor-side collision generation, so splat scenes can interact with Godot physics.
 
 ## 0x02 How To Use
 
@@ -71,9 +73,38 @@ After installation, the plugin root should be available at `res://addons/gdgs`.
 7. Add a `CompositorEffect` to that `Compositor`, and set its script to `res://addons/gdgs/runtime/compositor/gaussian_compositor_effect.gd`.
 8. Run the scene.
 
+### Collision Generation
+
+1. Select a `GaussianSplatNode` that has a Gaussian resource assigned.
+2. In the Inspector, find the **GDGS Collision** block at the top.
+3. Adjust the parameters if needed (the defaults work for most single objects) and click **Generate Collision**.
+4. A `StaticBody3D` named `CollisionBody` with a `ConcavePolygonShape3D` is added as a child of the node. Generation runs on a background thread with a cancellable progress dialog, commits as a single undo/redo action, and remembers the settings on the node.
+
+Options:
+
+- **Mesh**: `Faces (greedy)` produces few triangles with a blocky silhouette; `Smooth (marching cubes)` produces a watertight smoothed surface.
+- **Compute**: `Auto` voxelizes on a private GPU device when available and falls back to CPU; the plugin never touches the rendering pipeline's GPU state.
+- **Scene mode**: `Object` for single objects; `Interior` seals a scanned room from the outside; `Outdoor` fills the ground below the surface. Interior/Outdoor and **Carve** (which removes capsule-reachable walkable space) need a child `Marker3D` named `CollisionSeed` — use **Add / Select Seed**.
+- **Export Mesh…** exports the collision mesh as `.res`, `.obj`, or `.glb`.
+
+Physics notes: the generated shape is a hollow triangle-mesh shell with `backface_collision` enabled. For small, fast-moving rigid bodies, enable `continuous_cd` on the body (or raise `physics_ticks_per_second`) to avoid tunneling through thin walls.
+
+The collision module is optional and fault-isolated: if `addons/gdgs/collision` is missing or fails to load, the plugin logs a warning and rendering is unaffected, so you can delete that folder for a rendering-only installation.
+
 ## 0x03 Version History
 
 Versioning note: the historical `1.0` release is normalized here as `1.0.0`.
+
+### 3.1.0
+
+- Added editor-side collision generation for `GaussianSplatNode` (`addons/gdgs/collision`): voxelizes the Gaussian data (opacity-weighted Mahalanobis accumulation with a Beer–Lambert style cutoff), cleans isolated voxels and holes, and extracts either a greedy rectangle mesh or a watertight marching-cubes mesh into a `StaticBody3D` + `ConcavePolygonShape3D` child.
+- Added CPU and private-GPU voxelization backends with automatic fallback; the GPU path uses `RenderingServer.create_local_rendering_device()` only and never touches the splat renderer's GPU state.
+- Added `Object` / `Interior` / `Outdoor` scene modes and capsule-based carve for walkable space, seeded by a `CollisionSeed` marker.
+- Added background generation on `WorkerThreadPool` with a cancellable progress dialog, single-action undo/redo, per-node settings persistence, and collision mesh export to `.res` / `.obj` / `.glb`.
+- Generated shapes enable `backface_collision` so thin single-voxel shells resist tunneling and remain compatible with CCD.
+- The collision module loads through a fault-isolating self-test: a missing or broken `addons/gdgs/collision` folder only logs a warning and rendering keeps working.
+- Fixed push-constant alignment for Godot `4.7` compatibility (padded to 16 bytes).
+- Added Godot Asset Library export attributes and icon.
 
 ### 2.2.0
 
@@ -131,6 +162,7 @@ Versioning note: the historical `1.0` release is normalized here as `1.0.0`.
 - Mix Gaussian results against the scene depth buffer.
 - Preview in the editor and manipulate the node with a gizmo.
 - Built-in debug views for alpha, color, GS depth, scene depth, and depth rejection.
+- Generate static collision (`StaticBody3D` + `ConcavePolygonShape3D`) from Gaussian data in the editor, with faces/smooth meshing, CPU/private-GPU voxelization, interior/outdoor scene modes, capsule carve, and mesh export.
 
 ## 0x05 Scene Setup Notes
 
@@ -192,6 +224,7 @@ This importer is meant for Gaussian Splatting style assets, not generic point cl
 - `addons/gdgs/importers`: Import plugins, parsers, decoders, and resource builders.
 - `addons/gdgs/runtime`: Runtime nodes, resources, compositor code, and render modules.
 - `addons/gdgs/editor`: Editor-only integrations such as gizmos.
+- `addons/gdgs/collision`: Optional editor-side collision generation (inspector UI, worker pipeline, voxelizer shader).
 - `docs`: Architecture notes and internal review records.
 - `samples/assets`: Sample Gaussian assets.
 - `samples/media`: Screenshots and debug images.
@@ -207,6 +240,7 @@ This importer is meant for Gaussian Splatting style assets, not generic point cl
 
 ## 0x0A Acknowledgements
 
+- The collision generation pipeline is a GDScript port of the voxelization and collision approach in [PlayCanvas splat-transform](https://github.com/playcanvas/splat-transform), published by PlayCanvas Ltd. under the MIT License. Many thanks to the PlayCanvas team for openly sharing that work.
 - The shader work in this plugin was developed with reference to [2Retr0/GodotGaussianSplatting](https://github.com/2Retr0/GodotGaussianSplatting). Thanks to 2Retr0 for publishing that project.
 - Thanks to [@4321ba](https://github.com/4321ba) for [PR #6](https://github.com/ReconWorldLab/godot-gaussian-splatting/pull/6), which contributed editor icons, visibility handling improvements, and instancing support for shared Gaussian data.
 - The upstream `2Retr0/GodotGaussianSplatting` repository is published under the MIT License. If you reuse or redistribute closely related derivative work, review and retain the relevant upstream license notice.
@@ -215,6 +249,7 @@ This importer is meant for Gaussian Splatting style assets, not generic point cl
 ## 0x0B References
 
 - [2Retr0/GodotGaussianSplatting](https://github.com/2Retr0/GodotGaussianSplatting)
+- [PlayCanvas splat-transform](https://github.com/playcanvas/splat-transform)
 - [3D Gaussian Splatting for Real-Time Radiance Field Rendering](https://arxiv.org/abs/2308.04079)
 
 ## 0x0C License

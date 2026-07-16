@@ -4,10 +4,11 @@
 
 [English README](README.md)
 
-当前插件版本：`2.2.0`
+当前插件版本：`3.1.0`
 
 ## 新闻
 
+- 2026-07-16：`3.1.0` 版本新增编辑器内碰撞生成：选中 `GaussianSplatNode` 即可直接从 Gaussian 数据生成 `StaticBody3D` 碰撞体。该管线移植自 [PlayCanvas splat-transform](https://github.com/playcanvas/splat-transform) 的碰撞方案。
 - 2026-04-20：GameFromScratch 发布了对本插件的文章介绍：[Gaussian Splats in Godot](https://gamefromscratch.com/gaussian-splats-in-godot/)
 - 2026-04-20：GameFromScratch 在 YouTube 发布了本插件的视频介绍：[观看视频](https://www.youtube.com/watch?v=VfGYLlDHdrw)
 - 2026-03-31：合并了社区贡献 [PR #6](https://github.com/ReconWorldLab/godot-gaussian-splatting/pull/6)，补充了编辑器图标、可见性联动和实例化复用支持。
@@ -40,6 +41,7 @@
 - 让 `GaussianSplatNode` 接入 Godot 场景工作流。
 - 通过 `CompositorEffect` 与常规 3D 内容进行混合渲染。
 - 基于场景深度完成遮挡、深度测试和深度合成。
+- 编辑器内碰撞生成，让 splat 场景可以参与 Godot 物理交互。
 
 ## 0x02 如何使用
 
@@ -71,9 +73,38 @@
 7. 在该 `Compositor` 中添加一个 `CompositorEffect`，并将脚本设为 `res://addons/gdgs/runtime/compositor/gaussian_compositor_effect.gd`。
 8. 运行场景。
 
+### 碰撞生成
+
+1. 选中一个已赋值 Gaussian 资源的 `GaussianSplatNode`。
+2. 在 Inspector 顶部找到 **GDGS Collision** 区块。
+3. 按需调整参数（默认值适合大多数单物体场景），点击 **Generate Collision**。
+4. 节点下会生成一个名为 `CollisionBody` 的 `StaticBody3D`（内含 `ConcavePolygonShape3D`）。生成在后台线程运行、进度窗口可取消，以单个 Undo/Redo 动作提交，参数会记忆在节点上。
+
+参数说明：
+
+- **Mesh**：`Faces (greedy)` 三角形少、轮廓偏方块感；`Smooth (marching cubes)` 生成水密的平滑表面。
+- **Compute**：`Auto` 优先在私有 GPU 设备上体素化、不可用时回退 CPU；插件不会触碰渲染管线的 GPU 状态。
+- **Scene mode**：`Object` 适合单物体；`Interior` 从外部封闭扫描的房间；`Outdoor` 填充地表以下。Interior/Outdoor 和 **Carve**（雕除胶囊可达的可行走空间）需要一个名为 `CollisionSeed` 的子 `Marker3D`，用 **Add / Select Seed** 创建。
+- **Export Mesh…** 可将碰撞网格导出为 `.res`、`.obj` 或 `.glb`。
+
+物理提示：生成的碰撞体是空心三角网格壳，已开启 `backface_collision`。对于体积小、速度快的刚体，请开启其 `continuous_cd`（或提高 `physics_ticks_per_second`），避免穿透薄壁。
+
+碰撞模块是可选且故障隔离的：如果 `addons/gdgs/collision` 缺失或加载失败，插件只会打印警告，渲染完全不受影响；需要纯渲染安装时可直接删除该目录。
+
 ## 0x03 版本记录
 
 版本说明：历史中的 `1.0` 在这里按 semver 统一记为 `1.0.0`。
+
+### 3.1.0
+
+- 新增 `GaussianSplatNode` 的编辑器内碰撞生成（`addons/gdgs/collision`）：对 Gaussian 数据做体素化（不透明度加权的马氏距离累积 + Beer–Lambert 风格阈值），清理孤立体素与孔洞，再以贪心矩形网格或水密 marching-cubes 网格生成 `StaticBody3D` + `ConcavePolygonShape3D` 子节点。
+- 新增 CPU 与私有 GPU 两种体素化后端并自动回退；GPU 路径仅使用 `RenderingServer.create_local_rendering_device()`，绝不触碰 splat 渲染器的 GPU 状态。
+- 新增 `Object` / `Interior` / `Outdoor` 场景模式与基于胶囊的可行走空间雕刻（carve），由 `CollisionSeed` 标记提供种子点。
+- 生成在 `WorkerThreadPool` 后台运行，带可取消进度窗口、单动作 Undo/Redo、按节点记忆参数，并支持将碰撞网格导出为 `.res` / `.obj` / `.glb`。
+- 生成的形状开启 `backface_collision`，使单体素厚度的薄壳更耐穿透，并保证 CCD 生效。
+- 碰撞模块通过故障隔离自检加载：`addons/gdgs/collision` 缺失或损坏时仅打印警告，渲染保持正常。
+- 修复 push constants 对齐问题（填充到 16 字节），适配 Godot `4.7`。
+- 新增 Godot Asset Library 导出属性与图标。
 
 ### 2.2.0
 
@@ -131,6 +162,7 @@
 - 基于场景深度缓冲进行遮挡混合。
 - 支持编辑器内预览和 gizmo 操作。
 - 内置 alpha、颜色、GS 深度、场景深度和深度剔除遮罩等调试视图。
+- 在编辑器中从 Gaussian 数据生成静态碰撞（`StaticBody3D` + `ConcavePolygonShape3D`），支持 faces/smooth 网格、CPU/私有 GPU 体素化、室内/室外场景模式、胶囊 carve 与网格导出。
 
 ## 0x05 场景说明
 
@@ -192,6 +224,7 @@ compositor effect 脚本位于 `res://addons/gdgs/runtime/compositor/gaussian_co
 - `addons/gdgs/importers`：导入插件、解析器、解码器和资源构建器。
 - `addons/gdgs/runtime`：运行时节点、资源、compositor 代码和渲染模块。
 - `addons/gdgs/editor`：编辑器侧扩展，例如 gizmo。
+- `addons/gdgs/collision`：可选的编辑器内碰撞生成模块（Inspector UI、工作线程管线、体素化 shader）。
 - `docs`：架构说明和内部 review 文档。
 - `samples/assets`：示例 Gaussian 资源。
 - `samples/media`：截图和调试图片。
@@ -207,6 +240,7 @@ compositor effect 脚本位于 `res://addons/gdgs/runtime/compositor/gaussian_co
 
 ## 0x0A 致谢
 
+- 碰撞生成管线移植自 [PlayCanvas splat-transform](https://github.com/playcanvas/splat-transform) 的体素化与碰撞方案（PlayCanvas Ltd. 以 MIT License 发布）。衷心感谢 PlayCanvas 团队开源这项工作。
 - 本项目中的 shader 实现参考了 [2Retr0/GodotGaussianSplatting](https://github.com/2Retr0/GodotGaussianSplatting)。感谢 2Retr0 公开该项目。
 - 感谢 [@4321ba](https://github.com/4321ba) 提交 [PR #6](https://github.com/ReconWorldLab/godot-gaussian-splatting/pull/6)，为项目补充了编辑器图标、可见性联动处理，以及共享 Gaussian 数据的实例化复用支持。
 - 上游 `2Retr0/GodotGaussianSplatting` 仓库采用 MIT License。若你复用与其实现密切相关的衍生内容，请同时检查并保留相应的上游许可说明。
@@ -215,6 +249,7 @@ compositor effect 脚本位于 `res://addons/gdgs/runtime/compositor/gaussian_co
 ## 0x0B 参考资料
 
 - [2Retr0/GodotGaussianSplatting](https://github.com/2Retr0/GodotGaussianSplatting)
+- [PlayCanvas splat-transform](https://github.com/playcanvas/splat-transform)
 - [3D Gaussian Splatting for Real-Time Radiance Field Rendering](https://arxiv.org/abs/2308.04079)
 
 ## 0x0C 许可证
