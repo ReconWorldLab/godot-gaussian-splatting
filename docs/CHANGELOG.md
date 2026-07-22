@@ -7,6 +7,8 @@ Versioning note: the historical `1.0` release is normalized here as `1.0.0`.
 
 ## [Unreleased]
 
+- Bundled the MIT LICENSE inside `addons/gdgs` so it ships with every distribution of the plugin.
+- Added a tag-driven release workflow (`v*` tags) that packages a project-root-installable plugin zip and publishes release notes from this changelog.
 - Added a development `project.godot` and a ready-to-run demo scene (`samples/demo.tscn`).
 - Added CI (headless import + smoke test on the minimum and latest supported Godot versions), issue/PR templates, and a contributing guide.
 - Moved the large `.ply` sample assets out of the repository; samples beyond `demo.sog` are distributed via GitHub Releases.

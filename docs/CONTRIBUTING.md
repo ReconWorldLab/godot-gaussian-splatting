@@ -30,6 +30,21 @@ The repository layout and render-stack module split are described in [architectu
 - If you change user-facing docs, update both `README.md` and `docs/README_CN.md`.
 - Record user-visible changes in [CHANGELOG.md](CHANGELOG.md).
 
+## Release process (maintainers)
+
+1. Bump `version` in `addons/gdgs/plugin.cfg`.
+2. Move the `[Unreleased]` items in [CHANGELOG.md](CHANGELOG.md) into a new `## [X.Y.Z] - YYYY-MM-DD` section.
+3. Commit and push, then tag that commit and push the tag:
+
+   ```sh
+   git tag vX.Y.Z
+   git push origin vX.Y.Z
+   ```
+
+4. The `Release` workflow checks the tag against `plugin.cfg`, builds a zip containing only `addons/` (with the bundled LICENSE) that extracts directly into a project root, pulls the matching changelog section as release notes, and publishes the GitHub release.
+
+Large sample assets are attached to the dedicated `sample-assets` release, not to version releases.
+
 ## License
 
 By contributing you agree that your contributions are licensed under the [MIT License](../LICENSE).

@@ -1,0 +1,49 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify tag matches plugin.cfg version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          grep -q "version=\"${version}\"" addons/gdgs/plugin.cfg || {
+            echo "Tag ${GITHUB_REF_NAME} does not match the version in addons/gdgs/plugin.cfg"
+            exit 1
+          }
+
+      - name: Build plugin archive
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          # .gitattributes export-ignore rules keep everything except addons/
+          # out of the archive, so the zip extracts directly into a project root.
+          git archive --format=zip -o "gdgs-${version}.zip" HEAD
+          unzip -l "gdgs-${version}.zip"
+
+      - name: Extract changelog section
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v ver="${version}" '/^## \[/{p = index($0, "[" ver "]") > 0; next} p' docs/CHANGELOG.md > notes.md
+          if ! [ -s notes.md ]; then
+            echo "No [${version}] section found in docs/CHANGELOG.md"
+            exit 1
+          fi
+          cat notes.md
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          gh release create "${GITHUB_REF_NAME}" "gdgs-${version}.zip" \
+            --title "gdgs ${version}" \
+            --notes-file notes.md
