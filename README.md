@@ -88,7 +88,7 @@ Options:
 
 - **Mesh**: `Faces (greedy)` produces few triangles with a blocky silhouette; `Smooth (marching cubes)` produces a watertight smoothed surface.
 - **Compute**: `Auto` voxelizes on a private GPU device when available and falls back to CPU; the plugin never touches the rendering pipeline's GPU state.
-- **Scene mode**: `Object` for single objects; `Interior` seals a scanned room from the outside; `Outdoor` fills the ground below the surface. Interior/Outdoor and **Carve** (which removes capsule-reachable walkable space) need a child `Marker3D` named `CollisionSeed` — use **Add / Select Seed**.
+- **Scene mode**: `Object` for single objects; `Interior` seals a scanned room from the outside; `Outdoor` fills the ground below the surface. `Interior` and **Carve** (which removes capsule-reachable walkable space) need a child `Marker3D` named `CollisionSeed` — use **Add / Select Seed**. `Outdoor` derives its down direction from the node's current orientation, so orient the node the way it will be used before generating; it also seals the outer rim of the scan where no ground exists.
 - **Export Mesh…** exports the collision mesh as `.res`, `.obj`, or `.glb`.
 
 Physics notes: the generated shape is a hollow triangle-mesh shell with `backface_collision` enabled. For small, fast-moving rigid bodies, enable `continuous_cd` on the body (or raise `physics_ticks_per_second`) to avoid tunneling through thin walls.

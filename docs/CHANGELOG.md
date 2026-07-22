@@ -7,6 +7,12 @@ Versioning note: the historical `1.0` release is normalized here as `1.0.0`.
 
 ## [Unreleased]
 
+- Fixed the `Outdoor` collision scene mode sealing the wrong side of the ground surface for standard Y-down Gaussian assets: the fill direction is now derived from the node's orientation at generation time (`floor_y_sign` in the pipeline settings API, default assumes Y-down data).
+- Gaussian resources above 2M splats are now uniformly subsampled with density compensation instead of being rejected, so large scanned scenes can generate collision.
+- Rewrote the Gaussian-to-block candidate index shared by the CPU and private-GPU voxelizers as a CSR layout over packed int arrays: one implementation instead of two, far lower memory, and the arrays upload to the GPU without conversion; the CPU density loop also gained local-variable hoisting and block-saturation early-exit.
+- `Outdoor` scene mode no longer requires a `CollisionSeed` marker (only `Interior` and carve flood from the seed).
+- Fixed collision generation progress jumping backwards during interior/outdoor/carve; the pipeline stages now share one monotonic progress table (`pipeline_common.gd`), which also replaces the per-file result/cancel helper boilerplate.
+- Added headless regression tests for the collision pipeline (synthetic assets, CPU backend) to CI, including an outdoor fill-direction check and a subsampling check.
 - Bundled the MIT LICENSE inside `addons/gdgs` so it ships with every distribution of the plugin.
 - Added a tag-driven release workflow (`v*` tags) that packages a project-root-installable plugin zip and publishes release notes from this changelog.
 - Added a development `project.godot` and a ready-to-run demo scene (`samples/demo.tscn`).

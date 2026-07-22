@@ -138,11 +138,14 @@ func set_seed_label(text: String) -> void:
 func _refresh_enabled_controls() -> void:
 	var scene_features := _option_value(_scene_mode) != "object"
 	var carving := _carve.button_pressed
+	# Only interior fill and carve flood from the seed; outdoor derives its
+	# fill direction from the node's orientation instead.
+	var seed_used := _option_value(_scene_mode) == "interior" or carving
 	_voxel_size.editable = not _auto_voxel.button_pressed
 	_dilation.editable = scene_features
 	_capsule_height.editable = carving
 	_capsule_radius.editable = carving
-	_seed_button.disabled = not scene_features and not carving
+	_seed_button.disabled = not seed_used
 
 
 func _option_value(option: OptionButton) -> String:

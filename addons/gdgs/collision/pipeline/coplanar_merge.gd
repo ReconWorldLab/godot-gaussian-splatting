@@ -1,5 +1,7 @@
 extends RefCounted
 
+const COMMON := preload("res://addons/gdgs/collision/pipeline/pipeline_common.gd")
+
 const NORMAL_DOT_MIN := 0.999
 const PLANE_REL_EPS := 0.001
 const MAX_PASSES := 8
@@ -13,13 +15,13 @@ static func merge(geometry: Dictionary, voxel_size: float, control: RefCounted =
 	var positions: PackedVector3Array = geometry.get("positions", PackedVector3Array())
 	var indices: PackedInt32Array = geometry.get("indices", PackedInt32Array())
 	if indices.is_empty():
-		return _failure("Coplanar merge received empty geometry.")
+		return COMMON.failure("Coplanar merge received empty geometry.")
 	var input_triangles := indices.size() / 3
 	var removed_vertices := 0
 	for pass_index in MAX_PASSES:
-		if _is_cancelled(control):
-			return _cancelled_result()
-		_report_progress(control, "Losslessly merging coplanar smooth regions", 0.94 + 0.055 * float(pass_index) / MAX_PASSES)
+		if COMMON.is_cancelled(control):
+			return COMMON.cancelled_result()
+		COMMON.report_progress(control, "Losslessly merging coplanar smooth regions", 0.94 + 0.055 * float(pass_index) / MAX_PASSES)
 		var incidents: Array = []
 		incidents.resize(positions.size())
 		for vertex_index in positions.size():
@@ -257,20 +259,3 @@ static func _compact(positions: PackedVector3Array, indices: PackedInt32Array) -
 			compact_positions.append(positions[old_index])
 		compact_indices[offset] = remap[old_index]
 	return {"positions": compact_positions, "indices": compact_indices}
-
-
-static func _report_progress(control: RefCounted, stage: String, progress: float) -> void:
-	if control != null:
-		control.report_progress(stage, clampf(progress, 0.0, 1.0))
-
-
-static func _is_cancelled(control: RefCounted) -> bool:
-	return control != null and control.is_cancel_requested()
-
-
-static func _cancelled_result() -> Dictionary:
-	return {"ok": false, "error": "Generation cancelled.", "cancelled": true, "stats": {}}
-
-
-static func _failure(message: String) -> Dictionary:
-	return {"ok": false, "error": message, "cancelled": false, "stats": {}}

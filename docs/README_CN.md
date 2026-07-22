@@ -88,7 +88,7 @@
 
 - **Mesh**：`Faces (greedy)` 三角形少、轮廓偏方块感；`Smooth (marching cubes)` 生成水密的平滑表面。
 - **Compute**：`Auto` 优先在私有 GPU 设备上体素化、不可用时回退 CPU；插件不会触碰渲染管线的 GPU 状态。
-- **Scene mode**：`Object` 适合单物体；`Interior` 从外部封闭扫描的房间；`Outdoor` 填充地表以下。Interior/Outdoor 和 **Carve**（雕除胶囊可达的可行走空间）需要一个名为 `CollisionSeed` 的子 `Marker3D`，用 **Add / Select Seed** 创建。
+- **Scene mode**：`Object` 适合单物体；`Interior` 从外部封闭扫描的房间；`Outdoor` 填充地表以下。`Interior` 和 **Carve**（雕除胶囊可达的可行走空间）需要一个名为 `CollisionSeed` 的子 `Marker3D`，用 **Add / Select Seed** 创建。`Outdoor` 会根据节点当前朝向推导重力方向，生成前请先把节点摆到实际使用的朝向；扫描范围外没有地面的边缘会被整体封闭。
 - **Export Mesh…** 可将碰撞网格导出为 `.res`、`.obj` 或 `.glb`。
 
 物理提示：生成的碰撞体是空心三角网格壳，已开启 `backface_collision`。对于体积小、速度快的刚体，请开启其 `continuous_cd`（或提高 `physics_ticks_per_second`），避免穿透薄壁。

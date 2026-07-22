@@ -1,5 +1,7 @@
 extends RefCounted
 
+const COMMON := preload("res://addons/gdgs/collision/pipeline/pipeline_common.gd")
+
 
 static func build(grid: RefCounted, max_exposed_faces: int, control: RefCounted = null) -> Dictionary:
 	var geometry_result := build_geometry(grid, max_exposed_faces, control)
@@ -24,9 +26,9 @@ static func build_geometry(grid: RefCounted, max_exposed_faces: int, control: Re
 
 	for block_offset in block_count:
 		if block_offset % 64 == 0:
-			if _is_cancelled(control):
-				return _cancelled_result()
-			_report_progress(control, "Extracting exposed voxel faces", 0.80 + 0.06 * float(block_offset) / maxf(block_count, 1))
+			if COMMON.is_cancelled(control):
+				return COMMON.cancelled_result()
+			COMMON.report_progress(control, "Extracting exposed voxel faces", 0.80 + 0.06 * float(block_offset) / maxf(block_count, 1))
 		var block_index := int(occupied_blocks[block_offset])
 		var mask: int = grid.get_block_mask(block_index)
 		var block_coordinate: Vector3i = grid.decode_block_index(block_index)
@@ -56,26 +58,26 @@ static func build_geometry(grid: RefCounted, max_exposed_faces: int, control: Re
 				_add_face(face_groups, coordinate_stride, 5, iz + 1, ix, iy)
 				exposed_faces += 1
 			if exposed_faces > max_exposed_faces:
-				return _failure(
+				return COMMON.failure(
 					"Exposed voxel faces exceed the safety limit (%d). Increase voxel_size." % max_exposed_faces
 				)
 
 	if exposed_faces == 0:
-		return _failure("Voxelization produced no exposed surface.")
+		return COMMON.failure("Voxelization produced no exposed surface.")
 
 	var rectangles := _merge_faces(face_groups, coordinate_stride, control)
 	if rectangles.is_empty():
-		if _is_cancelled(control):
-			return _cancelled_result()
-		return _failure("Greedy face merging produced no rectangles.")
+		if COMMON.is_cancelled(control):
+			return COMMON.cancelled_result()
+		return COMMON.failure("Greedy face merging produced no rectangles.")
 	face_groups.clear()
-	if _is_cancelled(control):
-		return _cancelled_result()
+	if COMMON.is_cancelled(control):
+		return COMMON.cancelled_result()
 
-	_report_progress(control, "Splitting T-junctions", 0.93)
+	COMMON.report_progress(control, "Splitting T-junctions", 0.93)
 	var line_points := _build_line_points(rectangles, coordinate_stride, control)
-	if _is_cancelled(control):
-		return _cancelled_result()
+	if COMMON.is_cancelled(control):
+		return COMMON.cancelled_result()
 	var geometry := _triangulate_rectangles(rectangles, line_points, grid, coordinate_stride, control)
 	if not geometry.get("ok", false):
 		return geometry
@@ -83,7 +85,7 @@ static func build_geometry(grid: RefCounted, max_exposed_faces: int, control: Re
 	var positions: PackedVector3Array = geometry["positions"]
 	var indices: PackedInt32Array = geometry["indices"]
 	if positions.is_empty() or indices.is_empty():
-		return _failure("T-junction-safe triangulation produced no triangles.")
+		return COMMON.failure("T-junction-safe triangulation produced no triangles.")
 	var rectangle_count := rectangles.size() / 6
 	var triangle_count := indices.size() / 3
 	return {
@@ -112,7 +114,7 @@ static func create_mesh(geometry_result: Dictionary) -> Dictionary:
 	var positions: PackedVector3Array = geometry.get("positions", PackedVector3Array())
 	var indices: PackedInt32Array = geometry.get("indices", PackedInt32Array())
 	if positions.is_empty() or indices.is_empty() or indices.size() % 3 != 0:
-		return _failure("Collision geometry arrays are empty or malformed.")
+		return COMMON.failure("Collision geometry arrays are empty or malformed.")
 	var arrays: Array = []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = positions
@@ -120,7 +122,7 @@ static func create_mesh(geometry_result: Dictionary) -> Dictionary:
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	if mesh.get_surface_count() == 0:
-		return _failure("Godot could not construct the collision mesh surface.")
+		return COMMON.failure("Godot could not construct the collision mesh surface.")
 	var result := geometry_result.duplicate(false)
 	result["mesh"] = mesh
 	result.erase("geometry")
@@ -141,9 +143,9 @@ static func _merge_faces(groups: Dictionary, stride: int, control: RefCounted) -
 	var group_count := group_keys.size()
 	for group_offset in group_count:
 		if group_offset % 32 == 0:
-			if _is_cancelled(control):
+			if COMMON.is_cancelled(control):
 				return PackedInt32Array()
-			_report_progress(control, "Greedy-merging voxel faces", 0.86 + 0.06 * float(group_offset) / maxf(group_count, 1))
+			COMMON.report_progress(control, "Greedy-merging voxel faces", 0.86 + 0.06 * float(group_offset) / maxf(group_count, 1))
 		var group_key := int(group_keys[group_offset])
 		var bucket := group_key / stride
 		var plane := group_key % stride
@@ -185,7 +187,7 @@ static func _build_line_points(rectangles: PackedInt32Array, stride: int, contro
 	var line_points: Dictionary = {}
 	var rectangle_count := rectangles.size() / 6
 	for rectangle_index in rectangle_count:
-		if rectangle_index % 256 == 0 and _is_cancelled(control):
+		if rectangle_index % 256 == 0 and COMMON.is_cancelled(control):
 			return {}
 		var base := rectangle_index * 6
 		var axis := rectangles[base] >> 1
@@ -228,9 +230,9 @@ static func _triangulate_rectangles(
 	var rectangle_count := rectangles.size() / 6
 	for rectangle_index in rectangle_count:
 		if rectangle_index % 128 == 0:
-			if _is_cancelled(control):
-				return _cancelled_result()
-			_report_progress(control, "Triangulating merged faces", 0.95 + 0.045 * float(rectangle_index) / maxf(rectangle_count, 1))
+			if COMMON.is_cancelled(control):
+				return COMMON.cancelled_result()
+			COMMON.report_progress(control, "Triangulating merged faces", 0.95 + 0.045 * float(rectangle_index) / maxf(rectangle_count, 1))
 		var base := rectangle_index * 6
 		var bucket := rectangles[base]
 		var axis := bucket >> 1
@@ -422,20 +424,3 @@ static func _append_oriented_triangle(indices: PackedInt32Array, a: int, b: int,
 	else:
 		indices.append(c)
 		indices.append(b)
-
-
-static func _report_progress(control: RefCounted, stage: String, progress: float) -> void:
-	if control != null:
-		control.report_progress(stage, clampf(progress, 0.0, 1.0))
-
-
-static func _is_cancelled(control: RefCounted) -> bool:
-	return control != null and control.is_cancel_requested()
-
-
-static func _cancelled_result() -> Dictionary:
-	return {"ok": false, "error": "Generation cancelled.", "cancelled": true, "mesh": null, "stats": {}}
-
-
-static func _failure(message: String) -> Dictionary:
-	return {"ok": false, "error": message, "cancelled": false, "mesh": null, "stats": {}}

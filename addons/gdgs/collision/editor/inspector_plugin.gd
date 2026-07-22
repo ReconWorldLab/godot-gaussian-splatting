@@ -85,12 +85,17 @@ func _on_generate_pressed(object: Object, panel: PanelContainer) -> void:
 		_show_error("Collision generation is already running for this node.")
 		return
 	var settings: Dictionary = panel.read_settings()
-	var needs_seed: bool = settings["scene_mode"] != "object" or settings["carve"]
+	var needs_seed: bool = settings["scene_mode"] == "interior" or settings["carve"]
 	var seed_node := (object as Node3D).get_node_or_null(NodePath(String(SEED_MARKER_NAME)))
 	if needs_seed and not seed_node is Marker3D:
-		_show_error("Interior/outdoor fill and carve require a direct child Marker3D named CollisionSeed. Use 'Add / Select Seed' first.")
+		_show_error("Interior fill and carve require a direct child Marker3D named CollisionSeed. Use 'Add / Select Seed' first.")
 		return
 	settings["seed"] = (seed_node as Marker3D).position if seed_node is Marker3D else Vector3.ZERO
+	# Outdoor fill needs to know which resource-space Y direction is underground.
+	# Standard Gaussian data is Y-down and the node's default -180° Z correction
+	# flips it upright, so derive the sign from the node's current orientation.
+	var down_local: Vector3 = (object as Node3D).global_transform.basis.inverse() * Vector3.DOWN
+	settings["floor_y_sign"] = 1.0 if down_local.y > 0.0 else -1.0
 
 	# Resource access and PackedArray duplication happen before the worker starts.
 	var snapshot_result: Dictionary = PIPELINE_SCRIPT.create_snapshot(object.get("gaussian"))

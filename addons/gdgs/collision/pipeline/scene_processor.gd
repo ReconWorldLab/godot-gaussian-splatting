@@ -1,5 +1,6 @@
 extends RefCounted
 
+const COMMON := preload("res://addons/gdgs/collision/pipeline/pipeline_common.gd")
 const VOXEL_GRID_SCRIPT := preload("res://addons/gdgs/collision/pipeline/voxel_grid.gd")
 const NEIGHBORS := [
 	Vector3i(-1, 0, 0), Vector3i(1, 0, 0),
@@ -15,7 +16,7 @@ static func process(grid: RefCounted, settings: Dictionary, control: RefCounted 
 		return _success(grid, {"scene_mode": scene_mode, "scene_filled_voxels": 0, "carve_applied": false})
 	var dense := _to_dense(grid, control)
 	if dense.is_empty():
-		return _cancelled_result() if _is_cancelled(control) else _failure("Could not prepare the scene-mode voxel field.")
+		return COMMON.cancelled_result() if COMMON.is_cancelled(control) else COMMON.failure("Could not prepare the scene-mode voxel field.")
 	var original := dense.duplicate()
 	var dilation_world: float = settings.get("dilation", 1.6)
 	var dilation_radius := ceili(dilation_world / grid.voxel_size)
@@ -37,7 +38,7 @@ static func process(grid: RefCounted, settings: Dictionary, control: RefCounted 
 		original = dense.duplicate()
 		stats.merge(fill_result["stats"], true)
 	elif scene_mode == "outdoor":
-		var floor_result := _fill_floor(grid, dense, original, dilation_radius, control)
+		var floor_result := _fill_floor(grid, dense, original, dilation_radius, float(settings.get("floor_y_sign", 1.0)), control)
 		if not floor_result.get("ok", false):
 			return floor_result
 		dense = floor_result["dense"]
@@ -60,8 +61,8 @@ static func process(grid: RefCounted, settings: Dictionary, control: RefCounted 
 		stats.merge(carve_result["stats"], true)
 
 	_from_dense(grid, dense, control)
-	if _is_cancelled(control):
-		return _cancelled_result()
+	if COMMON.is_cancelled(control):
+		return COMMON.cancelled_result()
 	return _success(grid, stats)
 
 
@@ -73,14 +74,14 @@ static func _fill_exterior(
 	seed: Vector3,
 	control: RefCounted
 ) -> Dictionary:
-	_report_progress(control, "Dilating walls for interior fill", 0.66)
+	COMMON.phase_progress(control, "Dilating walls for interior fill", &"scene", 0.0)
 	var blocked := _dilate(dense, grid.nx, grid.ny, grid.nz, radius, radius, radius, control)
 	if blocked.is_empty():
-		return _cancelled_result()
-	_report_progress(control, "Flood-filling exterior space", 0.69)
+		return COMMON.cancelled_result()
+	COMMON.phase_progress(control, "Flood-filling exterior space", &"scene", 0.2)
 	var visited := _flood_from_boundary(blocked, grid.nx, grid.ny, grid.nz, control)
 	if visited.is_empty():
-		return _cancelled_result()
+		return COMMON.cancelled_result()
 	var seed_voxel: Vector3i = grid.world_to_voxel_floor(seed)
 	if not _inside(seed_voxel, grid.nx, grid.ny, grid.nz):
 		return {"ok": true, "grid": grid, "dense": original, "stats": {
@@ -93,10 +94,10 @@ static func _fill_exterior(
 			"scene_filled_voxels": 0, "scene_fill_skipped": true,
 			"scene_fill_message": "Seed is reachable from outside; exterior fill was skipped.",
 		}}
-	_report_progress(control, "Closing interior shell", 0.72)
+	COMMON.phase_progress(control, "Closing interior shell", &"scene", 0.4)
 	var dilated_visited := _dilate(visited, grid.nx, grid.ny, grid.nz, radius, radius, radius, control)
 	if dilated_visited.is_empty():
-		return _cancelled_result()
+		return COMMON.cancelled_result()
 	var filled := 0
 	for index in dense.size():
 		if original[index] == 0 and dilated_visited[index] != 0:
@@ -110,32 +111,39 @@ static func _fill_exterior(
 	}}
 
 
+# underground_y_sign selects the resource-space Y direction that points toward
+# the underground/ground side: each column is scanned from that side inward and
+# the free voxels before the first surface voxel are sealed. Standard COLMAP
+# style Gaussian data is Y-down, so its underground lies toward positive Y; the
+# editor derives the sign from the node's world orientation at generation time.
 static func _fill_floor(
 	grid: RefCounted,
 	dense: PackedByteArray,
 	original: PackedByteArray,
 	radius: int,
+	underground_y_sign: float,
 	control: RefCounted
 ) -> Dictionary:
-	_report_progress(control, "Dilating outdoor floor in XZ", 0.66)
+	COMMON.phase_progress(control, "Dilating outdoor floor in XZ", &"scene", 0.0)
 	var dilated := _dilate(dense, grid.nx, grid.ny, grid.nz, radius, 0, radius, control)
 	if dilated.is_empty():
-		return _cancelled_result()
+		return COMMON.cancelled_result()
+	var y_scan_order: Array = range(grid.ny) if underground_y_sign < 0.0 else range(grid.ny - 1, -1, -1)
 	var found := PackedByteArray()
 	found.resize(dense.size())
 	for z in grid.nz:
-		if z % 8 == 0 and _is_cancelled(control):
-			return _cancelled_result()
+		if z % 8 == 0 and COMMON.is_cancelled(control):
+			return COMMON.cancelled_result()
 		for x in grid.nx:
-			for y in grid.ny:
+			for y: int in y_scan_order:
 				var index := _index(x, y, z, grid.nx, grid.ny)
 				if dilated[index] != 0:
 					break
 				found[index] = 1
-	_report_progress(control, "Sealing the underside of the outdoor floor", 0.72)
+	COMMON.phase_progress(control, "Sealing the underside of the outdoor floor", &"scene", 0.5)
 	var dilated_found := _dilate(found, grid.nx, grid.ny, grid.nz, radius, 0, radius, control)
 	if dilated_found.is_empty():
-		return _cancelled_result()
+		return COMMON.cancelled_result()
 	var filled := 0
 	for index in dense.size():
 		if original[index] == 0 and dilated_found[index] != 0:
@@ -160,10 +168,10 @@ static func _carve(
 			"carve_applied": false, "carve_skipped": true,
 			"carve_message": "Seed is outside the voxel grid; carve was skipped.",
 		}}
-	_report_progress(control, "Dilating obstacles for the navigation capsule", 0.75)
+	COMMON.phase_progress(control, "Dilating obstacles for the navigation capsule", &"scene", 0.55)
 	var blocked := _dilate(dense, grid.nx, grid.ny, grid.nz, radius_xz, radius_y, radius_xz, control)
 	if blocked.is_empty():
-		return _cancelled_result()
+		return COMMON.cancelled_result()
 	var seed_index := _index(seed_voxel.x, seed_voxel.y, seed_voxel.z, grid.nx, grid.ny)
 	if blocked[seed_index] != 0:
 		seed_voxel = _find_nearest_free(blocked, seed_voxel, maxi(radius_xz, radius_y) * 2, grid.nx, grid.ny, grid.nz)
@@ -172,14 +180,14 @@ static func _carve(
 				"carve_applied": false, "carve_skipped": true,
 				"carve_message": "Seed is blocked and no nearby free capsule position exists; carve was skipped.",
 			}}
-	_report_progress(control, "Flood-filling capsule-reachable space", 0.78)
+	COMMON.phase_progress(control, "Flood-filling capsule-reachable space", &"scene", 0.7)
 	var reachable := _flood_from_seed(blocked, seed_voxel, grid.nx, grid.ny, grid.nz, control)
 	if reachable.is_empty():
-		return _cancelled_result()
-	_report_progress(control, "Building carved navigation complement", 0.82)
+		return COMMON.cancelled_result()
+	COMMON.phase_progress(control, "Building carved navigation complement", &"scene", 0.85)
 	var nav_region := _dilate(reachable, grid.nx, grid.ny, grid.nz, radius_xz, radius_y, radius_xz, control)
 	if nav_region.is_empty():
-		return _cancelled_result()
+		return COMMON.cancelled_result()
 	var crop_result := _crop_dense(grid, nav_region, true, false, control)
 	if not crop_result.get("ok", false):
 		return crop_result
@@ -193,7 +201,7 @@ static func _to_dense(grid: RefCounted, control: RefCounted) -> PackedByteArray:
 	dense.resize(grid.nx * grid.ny * grid.nz)
 	var keys: Array = grid.get_occupied_block_indices()
 	for key_offset in keys.size():
-		if key_offset % 128 == 0 and _is_cancelled(control):
+		if key_offset % 128 == 0 and COMMON.is_cancelled(control):
 			return PackedByteArray()
 		var block_index := int(keys[key_offset])
 		var mask: int = grid.get_block_mask(block_index)
@@ -211,7 +219,7 @@ static func _to_dense(grid: RefCounted, control: RefCounted) -> PackedByteArray:
 static func _from_dense(grid: RefCounted, dense: PackedByteArray, control: RefCounted) -> void:
 	var blocks: Dictionary = {}
 	for bz in grid.nbz:
-		if bz % 8 == 0 and _is_cancelled(control):
+		if bz % 8 == 0 and COMMON.is_cancelled(control):
 			return
 		for by in grid.nby:
 			for bx in grid.nbx:
@@ -247,7 +255,7 @@ static func _dilate_x(source: PackedByteArray, nx: int, ny: int, nz: int, radius
 	var output := PackedByteArray()
 	output.resize(source.size())
 	for z in nz:
-		if z % 8 == 0 and _is_cancelled(control):
+		if z % 8 == 0 and COMMON.is_cancelled(control):
 			return PackedByteArray()
 		for y in ny:
 			var count := 0
@@ -269,7 +277,7 @@ static func _dilate_y(source: PackedByteArray, nx: int, ny: int, nz: int, radius
 	var output := PackedByteArray()
 	output.resize(source.size())
 	for z in nz:
-		if z % 8 == 0 and _is_cancelled(control):
+		if z % 8 == 0 and COMMON.is_cancelled(control):
 			return PackedByteArray()
 		for x in nx:
 			var count := 0
@@ -291,7 +299,7 @@ static func _dilate_z(source: PackedByteArray, nx: int, ny: int, nz: int, radius
 	var output := PackedByteArray()
 	output.resize(source.size())
 	for y in ny:
-		if y % 8 == 0 and _is_cancelled(control):
+		if y % 8 == 0 and COMMON.is_cancelled(control):
 			return PackedByteArray()
 		for x in nx:
 			var count := 0
@@ -350,7 +358,7 @@ static func _run_flood(
 ) -> PackedByteArray:
 	var head := 0
 	while head < queue.size():
-		if head % 8192 == 0 and _is_cancelled(control):
+		if head % 8192 == 0 and COMMON.is_cancelled(control):
 			return PackedByteArray()
 		var index := queue[head]
 		head += 1
@@ -409,8 +417,8 @@ static func _crop_dense(
 	var minimum := Vector3i(grid.nx, grid.ny, grid.nz)
 	var maximum := Vector3i(-1, -1, -1)
 	for z in grid.nz:
-		if z % 8 == 0 and _is_cancelled(control):
-			return _cancelled_result()
+		if z % 8 == 0 and COMMON.is_cancelled(control):
+			return COMMON.cancelled_result()
 		for y in grid.ny:
 			for x in grid.nx:
 				var occupied := dense[_index(x, y, z, grid.nx, grid.ny)] != 0
@@ -419,7 +427,7 @@ static func _crop_dense(
 				minimum = minimum.min(Vector3i(x, y, z))
 				maximum = maximum.max(Vector3i(x, y, z))
 	if maximum.x < 0:
-		return _failure("No navigable scene cells remain after fill/carve.")
+		return COMMON.failure("No navigable scene cells remain after fill/carve.")
 	var min_block := Vector3i(minimum.x >> 2, minimum.y >> 2, minimum.z >> 2) - Vector3i.ONE
 	var max_block := Vector3i(maximum.x >> 2, maximum.y >> 2, maximum.z >> 2) + Vector3i.ONE
 	min_block = min_block.max(Vector3i.ZERO)
@@ -450,20 +458,3 @@ static func _inside(voxel: Vector3i, nx: int, ny: int, nz: int) -> bool:
 
 static func _success(grid: RefCounted, stats: Dictionary) -> Dictionary:
 	return {"ok": true, "error": "", "cancelled": false, "grid": grid, "stats": stats}
-
-
-static func _report_progress(control: RefCounted, stage: String, progress: float) -> void:
-	if control != null:
-		control.report_progress(stage, clampf(progress, 0.0, 1.0))
-
-
-static func _is_cancelled(control: RefCounted) -> bool:
-	return control != null and control.is_cancel_requested()
-
-
-static func _cancelled_result() -> Dictionary:
-	return {"ok": false, "error": "Generation cancelled.", "cancelled": true, "grid": null, "stats": {}}
-
-
-static func _failure(message: String) -> Dictionary:
-	return {"ok": false, "error": message, "cancelled": false, "grid": null, "stats": {}}

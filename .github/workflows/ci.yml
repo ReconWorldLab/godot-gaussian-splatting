@@ -33,3 +33,8 @@ jobs:
         run: |
           ./godot --headless --path . --script tests/smoke_test.gd 2>&1 | tee smoke.log
           grep -q "smoke test passed" smoke.log
+
+      - name: Collision pipeline tests
+        run: |
+          ./godot --headless --path . --script tests/collision_test.gd 2>&1 | tee collision.log
+          grep -q "collision tests passed" collision.log

@@ -1,5 +1,7 @@
 extends RefCounted
 
+const COMMON := preload("res://addons/gdgs/collision/pipeline/pipeline_common.gd")
+
 const COPLANAR_MERGE_SCRIPT := preload("res://addons/gdgs/collision/pipeline/coplanar_merge.gd")
 
 # Table-free marching-cubes contouring for a binary voxel field. Each cube
@@ -36,9 +38,9 @@ static func build_geometry(grid: RefCounted, max_surface_cells: int, control: Re
 	var cell_stride_y: int = grid.ny + 1
 	for block_offset in block_count:
 		if block_offset % 64 == 0:
-			if _is_cancelled(control):
-				return _cancelled_result()
-			_report_progress(control, "Indexing smooth surface cells", 0.80 + 0.05 * float(block_offset) / maxf(block_count, 1))
+			if COMMON.is_cancelled(control):
+				return COMMON.cancelled_result()
+			COMMON.report_progress(control, "Indexing smooth surface cells", 0.80 + 0.05 * float(block_offset) / maxf(block_count, 1))
 		var block_index := int(occupied_blocks[block_offset])
 		var mask: int = grid.get_block_mask(block_index)
 		var voxel_base: Vector3i = grid.decode_block_index(block_index) * 4
@@ -55,7 +57,7 @@ static func build_geometry(grid: RefCounted, max_surface_cells: int, control: Re
 
 	var cell_keys: Array = candidate_cells.keys()
 	if cell_keys.size() > max_surface_cells:
-		return _failure(
+		return COMMON.failure(
 			"Smooth surface touches %d cells; the safety limit is %d. Increase voxel_size." %
 			[cell_keys.size(), max_surface_cells]
 		)
@@ -69,9 +71,9 @@ static func build_geometry(grid: RefCounted, max_surface_cells: int, control: Re
 	var cell_count := cell_keys.size()
 	for cell_offset in cell_count:
 		if cell_offset % 256 == 0:
-			if _is_cancelled(control):
-				return _cancelled_result()
-			_report_progress(control, "Extracting smooth marching-cubes surface", 0.85 + 0.145 * float(cell_offset) / maxf(cell_count, 1))
+			if COMMON.is_cancelled(control):
+				return COMMON.cancelled_result()
+			COMMON.report_progress(control, "Extracting smooth marching-cubes surface", 0.85 + 0.145 * float(cell_offset) / maxf(cell_count, 1))
 		var key := int(cell_keys[cell_offset])
 		var shifted_z: int = key / (cell_stride_x * cell_stride_y)
 		var remainder: int = key - shifted_z * cell_stride_x * cell_stride_y
@@ -123,7 +125,7 @@ static func build_geometry(grid: RefCounted, max_surface_cells: int, control: Re
 			surface_cells += 1
 
 	if indices.is_empty():
-		return _failure("Marching cubes produced no smooth surface triangles.")
+		return COMMON.failure("Marching cubes produced no smooth surface triangles.")
 	var triangles_before_merge := indices.size() / 3
 	var merge_result: Dictionary = COPLANAR_MERGE_SCRIPT.merge({
 		"positions": positions, "indices": indices,
@@ -312,20 +314,3 @@ static func _append_outward_triangle(
 	else:
 		indices.append(c)
 		indices.append(b)
-
-
-static func _report_progress(control: RefCounted, stage: String, progress: float) -> void:
-	if control != null:
-		control.report_progress(stage, clampf(progress, 0.0, 1.0))
-
-
-static func _is_cancelled(control: RefCounted) -> bool:
-	return control != null and control.is_cancel_requested()
-
-
-static func _cancelled_result() -> Dictionary:
-	return {"ok": false, "error": "Generation cancelled.", "cancelled": true, "mesh": null, "stats": {}}
-
-
-static func _failure(message: String) -> Dictionary:
-	return {"ok": false, "error": message, "cancelled": false, "mesh": null, "stats": {}}

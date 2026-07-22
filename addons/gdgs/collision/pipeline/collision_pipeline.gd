@@ -1,5 +1,6 @@
 extends RefCounted
 
+const COMMON := preload("res://addons/gdgs/collision/pipeline/pipeline_common.gd")
 const SPLAT_SOURCE_SCRIPT := preload("res://addons/gdgs/collision/pipeline/splat_source.gd")
 const VOXEL_GRID_SCRIPT := preload("res://addons/gdgs/collision/pipeline/voxel_grid.gd")
 const VOXELIZER_SCRIPT := preload("res://addons/gdgs/collision/pipeline/voxelizer.gd")
@@ -72,34 +73,36 @@ static func generate_from_snapshot_settings(
 	var settings: Dictionary = settings_result["settings"]
 	var mesh_mode: String = settings["mesh_mode"]
 	var scene_mode: String = settings["scene_mode"]
-	if _is_cancelled(control):
-		return _cancelled_result()
+	if COMMON.is_cancelled(control):
+		return COMMON.cancelled_result()
 
-	_report_progress(control, "Preparing Gaussian data", 0.01)
+	COMMON.report_progress(control, "Preparing Gaussian data", 0.01)
 	var phase_started := Time.get_ticks_msec()
 	var extract_result: Dictionary = SPLAT_SOURCE_SCRIPT.prepare(data_snapshot, control)
 	var prepare_msec := Time.get_ticks_msec() - phase_started
 	if not extract_result.get("ok", false):
-		return _forward_failure(extract_result, "Failed to prepare Gaussian data.")
+		return COMMON.forward_failure(extract_result, "Failed to prepare Gaussian data.")
 	var source: Dictionary = extract_result["source"]
 	var input_splats := int(source["input_splats"])
+	var sample_stride := int(source["sample_stride"])
+	var sampled_splats := int(source["sampled_splats"])
 	var valid_splats := int(source["valid_splats"])
 	var skipped_splats := int(source["skipped_splats"])
 	var source_bounds: AABB = source["bounds"]
 	var longest_axis := maxf(source_bounds.size.x, maxf(source_bounds.size.y, source_bounds.size.z))
 	if longest_axis <= 0.0 or not is_finite(longest_axis):
-		return _failure("Gaussian 3σ bounds are empty or invalid.")
+		return COMMON.failure("Gaussian 3σ bounds are empty or invalid.")
 	var voxel_size := _resolve_voxel_size(settings["voxel_size"], longest_axis)
 	if voxel_size <= 0.0:
-		return _failure("voxel_size must be positive.")
+		return COMMON.failure("voxel_size must be positive.")
 	source_bounds = _grow_bounds_for_scene_modes(source_bounds, settings, voxel_size)
 
-	_report_progress(control, "Creating aligned voxel grid", 0.16)
+	COMMON.report_progress(control, "Creating aligned voxel grid", 0.16)
 	var grid_result := _create_aligned_grid(source_bounds, voxel_size)
 	if not grid_result.get("ok", false):
 		return grid_result
-	if _is_cancelled(control):
-		return _cancelled_result()
+	if COMMON.is_cancelled(control):
+		return COMMON.cancelled_result()
 	var grid: RefCounted = grid_result["grid"]
 	var dimensions := Vector3i(grid.nx, grid.ny, grid.nz)
 	var total_voxels := dimensions.x * dimensions.y * dimensions.z
@@ -110,33 +113,33 @@ static func generate_from_snapshot_settings(
 	)
 	var voxelize_msec := Time.get_ticks_msec() - phase_started
 	if not voxelize_result.get("ok", false):
-		return _forward_failure(voxelize_result, "Voxelization failed.")
+		return COMMON.forward_failure(voxelize_result, "Voxelization failed.")
 	var gpu_fallback_reason := String(voxelize_result.get("gpu_fallback_reason", ""))
 	source.clear()
 	if grid.get_occupied_block_indices().is_empty():
-		return _failure("Voxelization produced no solid voxels. Lower opacity_cutoff or voxel_size.")
+		return COMMON.failure("Voxelization produced no solid voxels. Lower opacity_cutoff or voxel_size.")
 
 	phase_started = Time.get_ticks_msec()
 	var cleanup_result: Dictionary = VOXELIZER_SCRIPT.cleanup(grid, control)
 	var cleanup_msec := Time.get_ticks_msec() - phase_started
 	if not cleanup_result.get("ok", false):
-		return _forward_failure(cleanup_result, "Voxel cleanup failed.")
+		return COMMON.forward_failure(cleanup_result, "Voxel cleanup failed.")
 	var object_occupied_voxels: int = grid.occupied_voxel_count()
 	if object_occupied_voxels == 0:
-		return _failure("All solid voxels were removed as isolated noise.")
-	if _is_cancelled(control):
-		return _cancelled_result()
+		return COMMON.failure("All solid voxels were removed as isolated noise.")
+	if COMMON.is_cancelled(control):
+		return COMMON.cancelled_result()
 
 	phase_started = Time.get_ticks_msec()
 	var scene_result: Dictionary = SCENE_PROCESSOR_SCRIPT.process(grid, settings, control)
 	var scene_msec := Time.get_ticks_msec() - phase_started
 	if not scene_result.get("ok", false):
-		return _forward_failure(scene_result, "Scene fill/carve failed.")
+		return COMMON.forward_failure(scene_result, "Scene fill/carve failed.")
 	grid = scene_result["grid"]
 	var scene_stats: Dictionary = scene_result["stats"]
 	var occupied_voxels: int = grid.occupied_voxel_count()
 	if occupied_voxels == 0:
-		return _failure("Scene fill/carve produced no solid voxels.")
+		return COMMON.failure("Scene fill/carve produced no solid voxels.")
 
 	phase_started = Time.get_ticks_msec()
 	var mesh_result: Dictionary
@@ -146,7 +149,7 @@ static func generate_from_snapshot_settings(
 		mesh_result = MESHER_SCRIPT.build_geometry(grid, MAX_EXPOSED_FACES, control)
 	var mesher_msec := Time.get_ticks_msec() - phase_started
 	if not mesh_result.get("ok", false):
-		return _forward_failure(mesh_result, "Mesh extraction failed.")
+		return COMMON.forward_failure(mesh_result, "Mesh extraction failed.")
 	var exposed_faces := int(mesh_result.get("exposed_faces", 0))
 	var triangles := int(mesh_result["triangles"])
 	var baseline_triangles := exposed_faces * 2
@@ -163,8 +166,11 @@ static func generate_from_snapshot_settings(
 		"scene_mode": scene_mode,
 		"carve": settings["carve"],
 		"input_splats": input_splats,
+		"sample_stride": sample_stride,
+		"sampled_splats": sampled_splats,
 		"valid_splats": valid_splats,
 		"skipped_splats": skipped_splats,
+		"floor_y_sign": settings["floor_y_sign"],
 		"voxel_size": voxel_size,
 		"grid_dimensions": dimensions,
 		"grid_voxels": total_voxels,
@@ -194,7 +200,7 @@ static func generate_from_snapshot_settings(
 		"elapsed_msec": Time.get_ticks_msec() - started_msec,
 	}
 	stats.merge(scene_stats, true)
-	_report_progress(control, "Collision geometry ready", 1.0)
+	COMMON.report_progress(control, "Collision geometry ready", 1.0)
 	return {
 		"ok": true,
 		"error": "",
@@ -245,9 +251,9 @@ static func _create_aligned_grid(bounds: AABB, voxel_size: float) -> Dictionary:
 	)
 	var total_voxels := dimensions.x * dimensions.y * dimensions.z
 	if dimensions.x > MAX_GRID_AXIS or dimensions.y > MAX_GRID_AXIS or dimensions.z > MAX_GRID_AXIS:
-		return _failure("Voxel grid axis %s exceeds the safety limit (%d). Increase voxel_size." % [dimensions, MAX_GRID_AXIS])
+		return COMMON.failure("Voxel grid axis %s exceeds the safety limit (%d). Increase voxel_size." % [dimensions, MAX_GRID_AXIS])
 	if total_voxels <= 0 or total_voxels > MAX_GRID_VOXELS:
-		return _failure(
+		return COMMON.failure(
 			"Voxel grid %s contains %d voxels; the safety limit is %d. Increase voxel_size." %
 			[dimensions, total_voxels, MAX_GRID_VOXELS]
 		)
@@ -277,7 +283,7 @@ static func _voxelize_with_backend(
 		if gpu_result.get("ok", false) or gpu_result.get("cancelled", false):
 			return gpu_result
 		if backend == "gpu":
-			return _forward_failure(gpu_result, "Private GPU voxelization failed.")
+			return COMMON.forward_failure(gpu_result, "Private GPU voxelization failed.")
 		grid.replace_blocks({})
 		var cpu_result: Dictionary = VOXELIZER_SCRIPT.voxelize(
 			source, grid, opacity_cutoff, MAX_CANDIDATE_REFERENCES, control
@@ -298,24 +304,27 @@ static func normalize_settings(raw_settings: Dictionary) -> Dictionary:
 	var capsule_height := float(raw_settings.get("capsule_height", 1.6))
 	var capsule_radius := float(raw_settings.get("capsule_radius", 0.2))
 	var seed_value: Variant = raw_settings.get("seed", Vector3.ZERO)
+	var floor_y_sign := float(raw_settings.get("floor_y_sign", 1.0))
 	if not is_finite(voxel_size) or voxel_size < 0.0:
-		return _failure("voxel_size must be zero (auto) or a finite positive number.")
+		return COMMON.failure("voxel_size must be zero (auto) or a finite positive number.")
 	if not is_finite(opacity_cutoff) or opacity_cutoff <= 0.0 or opacity_cutoff >= 1.0:
-		return _failure("opacity_cutoff must be greater than 0 and less than 1.")
+		return COMMON.failure("opacity_cutoff must be greater than 0 and less than 1.")
 	if mesh_mode not in ["faces", "smooth"]:
-		return _failure("mesh_mode must be 'faces' or 'smooth'.")
+		return COMMON.failure("mesh_mode must be 'faces' or 'smooth'.")
 	if scene_mode not in ["object", "interior", "outdoor"]:
-		return _failure("scene_mode must be 'object', 'interior', or 'outdoor'.")
+		return COMMON.failure("scene_mode must be 'object', 'interior', or 'outdoor'.")
 	if compute_backend not in ["auto", "cpu", "gpu"]:
-		return _failure("compute_backend must be 'auto', 'cpu', or 'gpu'.")
+		return COMMON.failure("compute_backend must be 'auto', 'cpu', or 'gpu'.")
 	if not is_finite(dilation) or dilation <= 0.0:
-		return _failure("dilation must be finite and greater than zero.")
+		return COMMON.failure("dilation must be finite and greater than zero.")
 	if not is_finite(capsule_height) or capsule_height <= 0.0:
-		return _failure("capsule_height must be finite and greater than zero.")
+		return COMMON.failure("capsule_height must be finite and greater than zero.")
 	if not is_finite(capsule_radius) or capsule_radius < 0.0:
-		return _failure("capsule_radius must be finite and non-negative.")
+		return COMMON.failure("capsule_radius must be finite and non-negative.")
 	if not seed_value is Vector3 or not (seed_value as Vector3).is_finite():
-		return _failure("seed must be a finite local-space Vector3.")
+		return COMMON.failure("seed must be a finite local-space Vector3.")
+	if not is_finite(floor_y_sign) or is_zero_approx(floor_y_sign):
+		return COMMON.failure("floor_y_sign must be a finite non-zero number.")
 	return {
 		"ok": true,
 		"error": "",
@@ -330,6 +339,7 @@ static func normalize_settings(raw_settings: Dictionary) -> Dictionary:
 			"capsule_height": capsule_height,
 			"capsule_radius": capsule_radius,
 			"seed": seed_value,
+			"floor_y_sign": signf(floor_y_sign),
 		},
 	}
 
@@ -358,24 +368,3 @@ static func create_collision_shape(mesh: ArrayMesh) -> ConcavePolygonShape3D:
 	if shape.get_faces().is_empty():
 		return null
 	return shape
-
-
-static func _report_progress(control: RefCounted, stage: String, progress: float) -> void:
-	if control != null:
-		control.report_progress(stage, clampf(progress, 0.0, 1.0))
-
-
-static func _is_cancelled(control: RefCounted) -> bool:
-	return control != null and control.is_cancel_requested()
-
-
-static func _forward_failure(result: Dictionary, fallback: String) -> Dictionary:
-	return _failure(result.get("error", fallback), result.get("cancelled", false))
-
-
-static func _cancelled_result() -> Dictionary:
-	return _failure("Generation cancelled.", true)
-
-
-static func _failure(message: String, cancelled: bool = false) -> Dictionary:
-	return {"ok": false, "error": message, "cancelled": cancelled, "mesh": null, "stats": {}}
