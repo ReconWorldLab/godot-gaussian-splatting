@@ -2,7 +2,7 @@
 
 Maintainer: ReconWorldLab
 
-[Chinese README](README_CN.md)
+[中文 README](docs/README_CN.md)
 
 Current plugin version: `3.1.0`
 
@@ -47,10 +47,14 @@ These previews show roughly 6 million Gaussian points rendered together inside a
 
 ### Requirements
 
-- Godot `4.4` or newer.
+- Godot `4.3` or newer.
 - `Forward Plus` rendering backend.
 - A desktop GPU and driver with compute shader support.
 - A supported Gaussian asset in one of the formats listed below.
+
+### Try It Directly
+
+This repository is itself a Godot project: clone it, open the repository root in Godot `4.3+`, wait for the first import, and run `samples/demo.tscn`. The demo scene already has the compositor effect configured.
 
 ### Installation
 
@@ -64,7 +68,7 @@ After installation, the plugin root should be available at `res://addons/gdgs`.
 
 ### Quick Start
 
-1. Add a supported Gaussian asset to your project. The repository includes `samples/assets/demo.ply`, `samples/assets/demo.compressed.ply`, and `samples/assets/demo.sog` as sample assets.
+1. Add a supported Gaussian asset to your project. The repository includes `samples/assets/demo.sog` as a compact sample; larger `.ply` samples are distributed through the [GitHub Releases page](https://github.com/ReconWorldLab/godot-gaussian-splatting/releases) to keep clones small.
 2. Wait for Godot to import it into a resource.
 3. Add a `GaussianSplatNode` to your scene.
 4. Assign the imported resource to the `gaussian` property of `GaussianSplatNode`.
@@ -93,63 +97,13 @@ The collision module is optional and fault-isolated: if `addons/gdgs/collision` 
 
 ## 0x03 Version History
 
-Versioning note: the historical `1.0` release is normalized here as `1.0.0`.
+The current version is `3.1.0`. The full per-version history lives in [docs/CHANGELOG.md](docs/CHANGELOG.md).
 
-### 3.1.0
+Highlights of `3.1.0`:
 
-- Added editor-side collision generation for `GaussianSplatNode` (`addons/gdgs/collision`): voxelizes the Gaussian data (opacity-weighted Mahalanobis accumulation with a Beer–Lambert style cutoff), cleans isolated voxels and holes, and extracts either a greedy rectangle mesh or a watertight marching-cubes mesh into a `StaticBody3D` + `ConcavePolygonShape3D` child.
-- Added CPU and private-GPU voxelization backends with automatic fallback; the GPU path uses `RenderingServer.create_local_rendering_device()` only and never touches the splat renderer's GPU state.
-- Added `Object` / `Interior` / `Outdoor` scene modes and capsule-based carve for walkable space, seeded by a `CollisionSeed` marker.
-- Added background generation on `WorkerThreadPool` with a cancellable progress dialog, single-action undo/redo, per-node settings persistence, and collision mesh export to `.res` / `.obj` / `.glb`.
-- Generated shapes enable `backface_collision` so thin single-voxel shells resist tunneling and remain compatible with CCD.
-- The collision module loads through a fault-isolating self-test: a missing or broken `addons/gdgs/collision` folder only logs a warning and rendering keeps working.
-- Fixed push-constant alignment for Godot `4.7` compatibility (padded to 16 bytes).
-- Added Godot Asset Library export attributes and icon.
-
-### 2.2.0
-
-- Added editor icons for `GaussianSplatNode` and Gaussian resources.
-- Added visibility propagation so Gaussian instances respect runtime/editor visibility toggles.
-- Added instancing support so multiple nodes can share the same Gaussian data without duplicating GPU splat uploads.
-- Fixed VR rendering support by using the correct view-projection path with eye offsets.
-
-### 2.1.0
-
-- Fixed the screen-space covariance projection regression that could rotate splats incorrectly in the Godot 4 compositor path.
-- Corrected the 2D covariance projection chain to use `screen_transform = jacobian * mat3(view_matrix)` and `cov_2d = screen_transform * cov_3d * transpose(screen_transform)`.
-- Fixed the compositor/Vulkan projection-sign bug where `RenderData` can provide a negative `projection.y.y` to encode a render-target Y flip, which previously inverted the Y clamp range used during covariance projection.
-- Bumped the Gaussian importer format version to force resource regeneration in Godot projects that still carry stale imported `.res` data.
-
-| Before 2.1.0 | After 2.1.0 |
-| --- | --- |
-| ![Before 2.1.0](samples/media/before_2.1.0.png) | ![After 2.1.0](samples/media/after_2.1.0.png) |
-
-### 2.0.0
-
-- Reorganized the repository into the shipping layout: `addons/gdgs`, `docs`, and `samples`.
-- Split the render stack into focused modules for manager lifetime, scene registry, GPU state caching, and frame execution.
-- Renamed and relocated the main runtime and editor entry files to match the new module layout.
-- Fixed the macOS and Metal blank-render issue by pre-sizing indirect dispatch dimensions on the CPU.
-- Fixed Godot 4.4 regressions around descriptor set typing, compute list typing, and compositor overlay teardown.
-- Fixed the `GaussianSplatNode` transform duplication and serialization bug so duplicated nodes no longer receive orientation or scale handling twice.
-- Restored transform consistency between editor gizmos and runtime rendering after the orientation fix.
-- Updated the documentation and sample references for the new structure.
-
-### 1.1.0
-
-- Added import support for `.compressed.ply`, `.splat`, and `.sog`.
-- Unified multiple input formats into a shared GPU-ready Gaussian resource build pipeline.
-- Centered imported Gaussian data during resource build for easier placement in scenes.
-- Added default Z-axis orientation correction behavior for newly added `GaussianSplatNode` instances.
-- Expanded the README, sample coverage, and plugin metadata for the `1.1.0` release.
-
-### 1.0.0
-
-- Initial public plugin release.
-- Added standard Gaussian `.ply` import support.
-- Added compositor-based Gaussian rendering with scene-depth compositing.
-- Added multi-node scene support.
-- Added editor preview, gizmo display, and debug view support.
+- Editor-side collision generation from Gaussian data (`StaticBody3D` + `ConcavePolygonShape3D`), with faces/smooth meshing, CPU/private-GPU voxelization, scene modes, capsule carve, and mesh export.
+- Godot `4.7` push-constant alignment compatibility fix.
+- Asset Library export attributes and icon.
 
 ## 0x04 Features
 
@@ -225,9 +179,12 @@ This importer is meant for Gaussian Splatting style assets, not generic point cl
 - `addons/gdgs/runtime`: Runtime nodes, resources, compositor code, and render modules.
 - `addons/gdgs/editor`: Editor-only integrations such as gizmos.
 - `addons/gdgs/collision`: Optional editor-side collision generation (inspector UI, worker pipeline, voxelizer shader).
-- `docs`: Architecture notes and internal review records.
-- `samples/assets`: Sample Gaussian assets.
-- `samples/media`: Screenshots and debug images.
+- `docs`: All non-README documentation — Chinese README, changelog, contributing guide, and architecture notes.
+- `samples`: Demo scene (`demo.tscn`), sample Gaussian assets, and media.
+- `tests`: Headless smoke test used by CI.
+- `project.godot`: Development project for working on the plugin itself; excluded from Asset Library exports.
+
+Only `addons/` ships to users; everything else is development and documentation support.
 
 ## 0x09 Known Limitations
 
@@ -252,6 +209,10 @@ This importer is meant for Gaussian Splatting style assets, not generic point cl
 - [PlayCanvas splat-transform](https://github.com/playcanvas/splat-transform)
 - [3D Gaussian Splatting for Real-Time Radiance Field Rendering](https://arxiv.org/abs/2308.04079)
 
-## 0x0C License
+## 0x0C Contributing
+
+Issues and pull requests are welcome, in English or Chinese. See [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) for the development setup (the repository opens directly as a Godot project), style notes, and the CI checks that run on every PR.
+
+## 0x0D License
 
 This project is released under the [MIT License](LICENSE).

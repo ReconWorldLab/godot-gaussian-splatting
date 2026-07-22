@@ -5,8 +5,10 @@ The repository now mirrors the plugin's shipping layout.
 ## Top-Level Layout
 
 - `addons/gdgs`: The plugin itself.
-- `docs`: Internal design notes and reviews.
-- `samples`: Example assets and media.
+- `docs`: All non-README documentation (Chinese README, changelog, contributing guide, this file).
+- `samples`: Demo scene, example assets, and media.
+- `tests`: Headless smoke test used by CI.
+- `project.godot`: Development project for working on the plugin; excluded from Asset Library exports.
 
 ## Plugin Modules
 
@@ -14,6 +16,7 @@ The repository now mirrors the plugin's shipping layout.
 - `addons/gdgs/editor`: Editor-only integrations.
 - `addons/gdgs/importers`: Asset import pipeline.
 - `addons/gdgs/runtime`: Runtime-facing nodes, resources, compositor code, and rendering internals.
+- `addons/gdgs/collision`: Optional editor-side collision generation, loaded through a fault-isolating self-test.
 
 ## Render Split
 

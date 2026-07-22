@@ -2,7 +2,7 @@
 
 维护者：ReconWorldLab
 
-[English README](README.md)
+[English README](../README.md)
 
 当前插件版本：`3.1.0`
 
@@ -25,11 +25,11 @@
 
 | Room 0 | Room 1 |
 | --- | --- |
-| ![Room 0 showcase](samples/media/showcase-room0.gif) | ![Room 1 showcase](samples/media/showcase-room1.gif) |
+| ![Room 0 showcase](../samples/media/showcase-room0.gif) | ![Room 1 showcase](../samples/media/showcase-room1.gif) |
 
 | Train | Truck |
 | --- | --- |
-| ![Train showcase](samples/media/showcase-train.gif) | ![Truck showcase](samples/media/showcase-truck.gif) |
+| ![Train showcase](../samples/media/showcase-train.gif) | ![Truck showcase](../samples/media/showcase-truck.gif) |
 
 ## 0x01 为什么需要这个插件
 
@@ -47,10 +47,14 @@
 
 ### 环境要求
 
-- Godot `4.4` 或更新版本。
+- Godot `4.3` 或更新版本。
 - 使用 `Forward Plus` 渲染后端。
 - 支持 compute shader 的桌面 GPU 和驱动。
 - 一份受支持格式的 Gaussian 资源文件。
+
+### 直接试用
+
+本仓库本身就是一个 Godot 工程：克隆后用 Godot `4.3+` 直接打开仓库根目录，等待首次导入完成，运行 `samples/demo.tscn` 即可。示例场景已经配置好了 compositor effect。
 
 ### 安装方法
 
@@ -64,7 +68,7 @@
 
 ### 快速开始
 
-1. 将一个受支持的 Gaussian 资源加入项目。本仓库附带了 `samples/assets/demo.ply`、`samples/assets/demo.compressed.ply` 和 `samples/assets/demo.sog` 作为示例。
+1. 将一个受支持的 Gaussian 资源加入项目。仓库附带了小体积示例 `samples/assets/demo.sog`；更大的 `.ply` 示例改为通过 [GitHub Releases 页面](https://github.com/ReconWorldLab/godot-gaussian-splatting/releases) 分发，以保持仓库克隆体积较小。
 2. 等待 Godot 将其导入为资源。
 3. 在场景中添加一个 `GaussianSplatNode`。
 4. 将导入后的资源赋值给 `GaussianSplatNode` 的 `gaussian` 属性。
@@ -93,63 +97,13 @@
 
 ## 0x03 版本记录
 
-版本说明：历史中的 `1.0` 在这里按 semver 统一记为 `1.0.0`。
+当前版本为 `3.1.0`。完整的逐版本记录见 [CHANGELOG.md](CHANGELOG.md)（英文）。
 
-### 3.1.0
+`3.1.0` 亮点：
 
-- 新增 `GaussianSplatNode` 的编辑器内碰撞生成（`addons/gdgs/collision`）：对 Gaussian 数据做体素化（不透明度加权的马氏距离累积 + Beer–Lambert 风格阈值），清理孤立体素与孔洞，再以贪心矩形网格或水密 marching-cubes 网格生成 `StaticBody3D` + `ConcavePolygonShape3D` 子节点。
-- 新增 CPU 与私有 GPU 两种体素化后端并自动回退；GPU 路径仅使用 `RenderingServer.create_local_rendering_device()`，绝不触碰 splat 渲染器的 GPU 状态。
-- 新增 `Object` / `Interior` / `Outdoor` 场景模式与基于胶囊的可行走空间雕刻（carve），由 `CollisionSeed` 标记提供种子点。
-- 生成在 `WorkerThreadPool` 后台运行，带可取消进度窗口、单动作 Undo/Redo、按节点记忆参数，并支持将碰撞网格导出为 `.res` / `.obj` / `.glb`。
-- 生成的形状开启 `backface_collision`，使单体素厚度的薄壳更耐穿透，并保证 CCD 生效。
-- 碰撞模块通过故障隔离自检加载：`addons/gdgs/collision` 缺失或损坏时仅打印警告，渲染保持正常。
-- 修复 push constants 对齐问题（填充到 16 字节），适配 Godot `4.7`。
-- 新增 Godot Asset Library 导出属性与图标。
-
-### 2.2.0
-
-- 为 `GaussianSplatNode` 和 Gaussian 资源补充编辑器图标。
-- 补齐 Gaussian 实例对运行时 / 编辑器可见性切换的联动响应。
-- 增加实例化复用支持，使多个节点可以共享同一份 Gaussian 数据，避免重复上传 GPU splat 数据。
-- 修复 VR 渲染支持，改为使用正确的、带 eye offset 的 view projection 路径。
-
-### 2.1.0
-
-- 修复了 Godot 4 compositor 路径下屏幕空间协方差投影回归问题，该问题会导致 splat 旋转方向错误。
-- 修正 2D 协方差投影链路，改为使用 `screen_transform = jacobian * mat3(view_matrix)` 和 `cov_2d = screen_transform * cov_3d * transpose(screen_transform)`。
-- 修复了 compositor / Vulkan 投影符号问题：`RenderData` 可能提供 `projection.y.y` 为负的投影矩阵以编码渲染目标 Y 翻转，旧逻辑会因此反转协方差投影使用的 Y 方向 clamp 范围。
-- 提升 Gaussian 导入器格式版本，强制仍然带有旧 `.res` 导入结果的 Godot 项目重新生成资源。
-
-| 2.1.0 之前 | 2.1.0 之后 |
-| --- | --- |
-| ![2.1.0 之前](samples/media/before_2.1.0.png) | ![2.1.0 之后](samples/media/after_2.1.0.png) |
-
-### 2.0.0
-
-- 仓库结构重组为正式发布形态：`addons/gdgs`、`docs`、`samples`。
-- 渲染链路按职责拆分为管理器生命周期、场景注册、GPU 状态缓存和逐帧执行四个模块。
-- 主要运行时与编辑器入口脚本全部按新结构重命名和重排。
-- 修复了 macOS / Metal 下 indirect dispatch 导致整条 GS 渲染链空白的问题。
-- 修复了 Godot 4.4 下 descriptor set 类型、compute list 类型和 overlay 释放相关的回归。
-- 修复了 `GaussianSplatNode` 复制与序列化时变换被重复处理的问题。
-- 修复了朝向修正之后 gizmo 与实际渲染不一致的问题。
-- 同步更新了文档、示例路径和仓库说明。
-
-### 1.1.0
-
-- 新增 `.compressed.ply`、`.splat` 和 `.sog` 导入支持。
-- 将多种输入格式统一整理为共享的 GPU 可用 Gaussian 资源构建流程。
-- 导入阶段默认对 Gaussian 数据做居中处理，便于放入场景。
-- 为新加入场景的 `GaussianSplatNode` 增加默认的 Z 轴朝向修正行为。
-- 扩展了 README、示例说明和插件版本元数据，形成 `1.1.0` 版本。
-
-### 1.0.0
-
-- 首个公开版本。
-- 支持标准 Gaussian `.ply` 导入。
-- 支持基于 compositor 的 Gaussian 渲染与场景深度合成。
-- 支持多节点同时渲染。
-- 支持编辑器预览、gizmo 和调试视图。
+- 编辑器内从 Gaussian 数据生成碰撞（`StaticBody3D` + `ConcavePolygonShape3D`），支持 faces/smooth 网格、CPU/私有 GPU 体素化、场景模式、胶囊 carve 与网格导出。
+- 修复 push constants 对齐问题，适配 Godot `4.7`。
+- 新增 Asset Library 导出属性与图标。
 
 ## 0x04 功能特性
 
@@ -225,9 +179,12 @@ compositor effect 脚本位于 `res://addons/gdgs/runtime/compositor/gaussian_co
 - `addons/gdgs/runtime`：运行时节点、资源、compositor 代码和渲染模块。
 - `addons/gdgs/editor`：编辑器侧扩展，例如 gizmo。
 - `addons/gdgs/collision`：可选的编辑器内碰撞生成模块（Inspector UI、工作线程管线、体素化 shader）。
-- `docs`：架构说明和内部 review 文档。
-- `samples/assets`：示例 Gaussian 资源。
-- `samples/media`：截图和调试图片。
+- `docs`：除英文 README 外的全部文档——中文 README、changelog、贡献指南和架构说明。
+- `samples`：示例场景（`demo.tscn`）、示例 Gaussian 资源和媒体文件。
+- `tests`：CI 使用的 headless 冒烟测试。
+- `project.godot`：用于开发插件本身的工程文件；不会包含在 Asset Library 导出中。
+
+只有 `addons/` 会分发给用户，其余内容都是开发与文档配套。
 
 ## 0x09 已知限制
 
@@ -252,6 +209,10 @@ compositor effect 脚本位于 `res://addons/gdgs/runtime/compositor/gaussian_co
 - [PlayCanvas splat-transform](https://github.com/playcanvas/splat-transform)
 - [3D Gaussian Splatting for Real-Time Radiance Field Rendering](https://arxiv.org/abs/2308.04079)
 
-## 0x0C 许可证
+## 0x0C 参与贡献
 
-本项目采用 [MIT License](LICENSE)。
+欢迎提交 issue 和 PR，中英文均可。开发环境搭建（仓库可直接作为 Godot 工程打开）、代码风格约定和 CI 检查项见 [CONTRIBUTING.md](CONTRIBUTING.md)（英文）。
+
+## 0x0D 许可证
+
+本项目采用 [MIT License](../LICENSE)。
