@@ -17,3 +17,7 @@ mono_crash.*.json
 
 *.import
 *.uid
+
+# Large sample assets are distributed via GitHub Releases, not the repository.
+samples/assets/demo.ply
+samples/assets/demo.compressed.ply
