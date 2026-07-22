@@ -1,0 +1,24 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://addons/gdgs/runtime/nodes/gaussian_splat_node.gd" id="1_splat_script"]
+[ext_resource type="Script" path="res://addons/gdgs/runtime/compositor/gaussian_compositor_effect.gd" id="2_effect_script"]
+[ext_resource type="Resource" path="res://samples/assets/demo.sog" id="3_demo_sog"]
+
+[sub_resource type="CompositorEffect" id="CompositorEffect_gdgs"]
+resource_name = "GaussianCompositorEffect"
+script = ExtResource("2_effect_script")
+
+[sub_resource type="Compositor" id="Compositor_gdgs"]
+compositor_effects = [SubResource("CompositorEffect_gdgs")]
+
+[node name="Demo" type="Node3D"]
+
+[node name="GaussianSplat" type="VisualInstance3D" parent="."]
+script = ExtResource("1_splat_script")
+gaussian = ExtResource("3_demo_sog")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+compositor = SubResource("Compositor_gdgs")
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 3)

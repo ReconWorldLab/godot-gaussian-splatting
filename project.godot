@@ -1,0 +1,19 @@
+; Engine configuration file.
+; This file is only used for developing the plugin itself and for running the
+; bundled demo scene. It is excluded from Asset Library exports (.gitattributes).
+; Minimum supported Godot version: 4.3.
+config_version=5
+
+[application]
+
+config/name="gdgs"
+run/main_scene="res://samples/demo.tscn"
+config/features=PackedStringArray("4.3", "Forward Plus")
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/gdgs/plugin.cfg")
+
+[rendering]
+
+renderer/rendering_method="forward_plus"
