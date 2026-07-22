@@ -1,0 +1,61 @@
+name: Bug report
+description: Report a rendering, import, or collision problem (English or Chinese welcome)
+labels: [bug]
+body:
+  - type: input
+    id: godot-version
+    attributes:
+      label: Godot version
+      placeholder: "e.g. 4.4.1 stable"
+    validations:
+      required: true
+  - type: input
+    id: plugin-version
+    attributes:
+      label: gdgs version
+      placeholder: "e.g. 3.1.0"
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: OS / GPU / driver
+      placeholder: "e.g. Windows 11, RTX 3070, driver 551.61"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Rendering / compositor
+        - Import (.ply)
+        - Import (.compressed.ply)
+        - Import (.splat)
+        - Import (.sog)
+        - Collision generation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you expect, and what happened instead? Screenshots help a lot.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Import asset ...
+        2. Add GaussianSplatNode ...
+        3. Run the scene ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Console output / logs
+      render: text

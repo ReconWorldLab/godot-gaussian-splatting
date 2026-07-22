@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  godot-import:
+    name: Import & smoke test (Godot ${{ matrix.godot-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 4.3 is the minimum supported version; keep the newest stable at the end.
+        godot-version: ["4.3", "4.7.1"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Godot ${{ matrix.godot-version }}
+        run: |
+          curl -sSL -o godot.zip "https://github.com/godotengine/godot-builds/releases/download/${{ matrix.godot-version }}-stable/Godot_v${{ matrix.godot-version }}-stable_linux.x86_64.zip"
+          unzip -q godot.zip
+          mv "Godot_v${{ matrix.godot-version }}-stable_linux.x86_64" godot
+          ./godot --version
+
+      - name: Import project
+        run: |
+          ./godot --headless --path . --import 2>&1 | tee import.log || true
+          ! grep -E "SCRIPT ERROR|Parse Error|Failed to load script" import.log
+
+      - name: Smoke test
+        run: |
+          ./godot --headless --path . --script tests/smoke_test.gd 2>&1 | tee smoke.log
+          grep -q "smoke test passed" smoke.log
