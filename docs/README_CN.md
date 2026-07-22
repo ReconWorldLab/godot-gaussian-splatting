@@ -215,4 +215,4 @@ compositor effect 脚本位于 `res://addons/gdgs/runtime/compositor/gaussian_co
 
 ## 0x0D 许可证
 
-本项目采用 [MIT License](../LICENSE)。
+本项目采用 [MIT License](../LICENSE)。`addons/gdgs` 目录内也附带了一份许可证副本,插件文件夹被复制或下载到哪里,许可证就跟到哪里。

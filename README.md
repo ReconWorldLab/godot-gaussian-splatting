@@ -215,4 +215,4 @@ Issues and pull requests are welcome, in English or Chinese. See [docs/CONTRIBUT
 
 ## 0x0D License
 
-This project is released under the [MIT License](LICENSE).
+This project is released under the [MIT License](LICENSE). A copy of the license is bundled inside `addons/gdgs`, so it travels with the plugin wherever the folder is copied or downloaded.
