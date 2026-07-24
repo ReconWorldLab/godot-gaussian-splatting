@@ -19,6 +19,12 @@ render_mode unshaded, cull_disabled, depth_draw_never, blend_mix, shadows_disabl
 uniform sampler2D splat_data : filter_nearest, repeat_disable;
 uniform int splat_data_width = 1;
 uniform int point_count = 0;
+// Optional sorted-order indirection (Phase 3): order_data[sorted_pos] = splat
+// index, back-to-front. When use_order is false the order is the identity
+// (resource order), which is what the static Phase 2 path renders.
+uniform sampler2D order_data : filter_nearest, repeat_disable;
+uniform int order_width = 1;
+uniform bool use_order = false;
 // Quad half-size in standard deviations; splats fade to ~exp(-0.5 k^2) at the edge.
 uniform float quad_extent = 3.0;
 uniform float alpha_cutoff = 0.00392; // ~1/255
@@ -48,9 +54,15 @@ void vertex() {
 
 	int local = int(UV.x + 0.5);
 	int corner = int(UV.y + 0.5);
-	int sidx = INSTANCE_ID * SPLATS_PER_INSTANCE + local;
+	int sorted_pos = INSTANCE_ID * SPLATS_PER_INSTANCE + local;
 
-	if (sidx < point_count) {
+	if (sorted_pos < point_count) {
+		int sidx = sorted_pos;
+		if (use_order) {
+			int ox = sorted_pos % order_width;
+			int oy = sorted_pos / order_width;
+			sidx = int(texelFetch(order_data, ivec2(ox, oy), 0).r + 0.5);
+		}
 		int base = sidx * TEXELS_PER_SPLAT;
 		vec4 t0 = fetch_texel(base + 0); // position.xyz, (pad)
 		vec4 t1 = fetch_texel(base + 1); // cov xx, xy, xz, yy
