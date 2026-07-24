@@ -39,8 +39,8 @@ class Entry:
 	var job: RefCounted = null
 	var order_image: Image = null
 	var order_texture: ImageTexture = null
-	var order_scratch := PackedFloat32Array()
 	var order_dims := Vector2i(1, 1)
+	var order_live := false
 	var last_dir_local := Vector3.ZERO
 	var has_kicked := false
 
@@ -134,14 +134,22 @@ func _drive_entry(entry: Entry) -> void:
 			entry.last_dir_local = dir_n
 			entry.has_kicked = true
 
+## The worker already packed the R32F texel bytes, so a completed sort costs the
+## main thread one Image.set_data plus the texture update — no per-splat work.
 func _upload_order(entry: Entry) -> void:
-	var order: PackedInt32Array = entry.job.front_order()
-	if order.is_empty() or entry.order_texture == null or entry.order_image == null:
+	if entry.order_texture == null or entry.order_image == null:
 		return
-	var texels := entry.order_dims.x * entry.order_dims.y
-	var bytes := DataTextures.order_to_bytes(order, entry.order_scratch, texels)
+	var bytes: PackedByteArray = entry.job.front_bytes()
+	if bytes.size() != entry.order_dims.x * entry.order_dims.y * DataTextures.ORDER_BYTES_PER_TEXEL:
+		return
 	entry.order_image.set_data(entry.order_dims.x, entry.order_dims.y, false, Image.FORMAT_RF, bytes)
 	entry.order_texture.update(entry.order_image)
+	if not entry.order_live:
+		# Until the first real order lands the texture is zeroed, so the material
+		# renders in resource order instead of reading it.
+		entry.order_live = true
+		if entry.material != null:
+			entry.material.set_shader_parameter("use_order", true)
 
 func _rebuild_entry(node: Node) -> void:
 	var key := node.get_instance_id()
@@ -168,8 +176,8 @@ func _populate_entry(entry: Entry, node: Node) -> void:
 	if _base_mesh == null:
 		_base_mesh = SplatMesh.build()
 
-	# Order texture (starts as identity -> renders in resource order until the
-	# first background sort lands).
+	# Order texture (starts zeroed with use_order off -> renders in resource order
+	# until the first background sort lands).
 	var order_dims: Vector2i = DataTextures.order_dimensions(count)
 	var order_image: Image = DataTextures.make_order_image(order_dims)
 	var order_texture: ImageTexture = ImageTexture.create_from_image(order_image)
@@ -183,7 +191,7 @@ func _populate_entry(entry: Entry, node: Node) -> void:
 	material.set_shader_parameter("point_count", count)
 	material.set_shader_parameter("order_data", order_texture)
 	material.set_shader_parameter("order_width", order_dims.x)
-	material.set_shader_parameter("use_order", true)
+	material.set_shader_parameter("use_order", false)
 
 	var instances := int(ceil(float(count) / float(SPLATS_PER_INSTANCE)))
 	var multimesh := MultiMesh.new()
@@ -208,6 +216,7 @@ func _populate_entry(entry: Entry, node: Node) -> void:
 
 	var job := SortJob.new()
 	job.set_positions(gaussian.get("xyz"))
+	job.set_texel_count(order_dims.x * order_dims.y)
 
 	entry.mmi = mmi
 	entry.material = material
@@ -217,8 +226,8 @@ func _populate_entry(entry: Entry, node: Node) -> void:
 	entry.job = job
 	entry.order_image = order_image
 	entry.order_texture = order_texture
-	entry.order_scratch = PackedFloat32Array()
 	entry.order_dims = order_dims
+	entry.order_live = false
 	entry.last_dir_local = Vector3.ZERO
 	entry.has_kicked = false
 
@@ -278,7 +287,7 @@ func _free_contents(entry: Entry) -> void:
 	entry.sh_texture = null
 	entry.order_image = null
 	entry.order_texture = null
-	entry.order_scratch = PackedFloat32Array()
+	entry.order_live = false
 	entry.point_count = 0
 	entry.has_kicked = false
 
