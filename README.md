@@ -229,7 +229,7 @@ Only `addons/` ships to users; everything else is development and documentation 
 
 ## 0x09 Known Limitations
 
-- The **Raster** backend is new in `3.2.0-beta`: it is verified against the Compute backend on desktop `Forward Plus` (matching-pose captures differ by ~1.5/255 on average), but coverage on real mobile hardware is still in progress, and its colour conversion is not yet renderer-aware on `Compatibility` (splats may render slightly dark there). Please report what you see.
+- The **Raster** backend is new in `3.2.0-beta`: it is verified against the Compute backend on desktop `Forward Plus` and `Compatibility` (matching-pose captures differ by ~1.5/255 on average), but coverage on real mobile hardware is still in progress. Please report what you see.
 - The **Compute** backend targets desktop `Forward Plus` only and depends on Godot's compositor and compute pipeline, so it does not run on the `Mobile` or `Compatibility` renderers. Use the **Raster** backend there (see [Rendering Backends](#rendering-backends)).
 - The **Raster** backend uses a global (not per-tile-exact) back-to-front order that can lag the camera a frame or two, so fast rotations may show mild popping.
 - On 4K displays, rendering errors or visual glitches may occur when GPU memory pressure becomes too high. Reducing the Godot viewport resolution may help. Reported in [issue #3](https://github.com/ReconWorldLab/godot-gaussian-splatting/issues/3).

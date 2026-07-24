@@ -65,14 +65,16 @@ const int SH_TEXELS_PER_SPLAT = 12;
 varying flat vec4 v_color; // rgb + opacity
 varying vec2 v_t;          // ellipse-local coordinate in std-dev units
 
-// sRGB -> linear (exact EOTF). SH colours are trained in sRGB space, but this
-// material feeds the scene's linear HDR pipeline, whose output encode
-// (linear -> sRGB) must land back on the trained values. Parity with
-// srgb_to_linear() in compositor/shaders/gaussian_composite.glsl — Compute
-// converts once after blending in sRGB space; here each splat converts before
-// the scene's linear blend (same per-splat colour; the blend-space difference
-// is inherent to the standard pipeline). PlayCanvas does the same per-splat
-// decodeGamma in its gsplatOutput chunk whenever the pipeline is linear.
+// sRGB -> linear (exact EOTF). SH colours are trained in sRGB space, but on
+// Forward+/Mobile this material feeds the scene's linear HDR pipeline, whose
+// output encode (linear -> sRGB) must land back on the trained values. Parity
+// with srgb_to_linear() in compositor/shaders/gaussian_composite.glsl —
+// Compute converts once after blending in sRGB space; here each splat converts
+// before the scene's linear blend (same per-splat colour; the blend-space
+// difference is inherent to the standard pipeline). PlayCanvas does the same
+// per-splat decodeGamma in its gsplatOutput chunk whenever the pipeline is
+// linear. Applied in fragment() and skipped when OUTPUT_IS_SRGB (Compatibility
+// renders and blends directly in sRGB, matching Compute's accumulation).
 vec3 srgb_to_linear(vec3 color) {
 	vec3 lower = color / 12.92;
 	vec3 higher = pow((color + 0.055) / 1.055, vec3(2.4));
@@ -247,7 +249,7 @@ void vertex() {
 				if (aa_compensation) {
 					eff_opacity *= sqrt(clamp(det_raw / det, 0.0, 1.0));
 				}
-				v_color = vec4(srgb_to_linear(eval_sh(view_dir, c)), eff_opacity);
+				v_color = vec4(eval_sh(view_dir, c), eff_opacity);
 				} // sub-pixel discard guard
 			}
 		}
@@ -260,6 +262,10 @@ void fragment() {
 	if (a < alpha_cutoff) {
 		discard;
 	}
-	ALBEDO = v_color.rgb;
+	vec3 albedo = v_color.rgb;
+	if (!OUTPUT_IS_SRGB) {
+		albedo = srgb_to_linear(albedo);
+	}
+	ALBEDO = albedo;
 	ALPHA = clamp(a, 0.0, 1.0);
 }

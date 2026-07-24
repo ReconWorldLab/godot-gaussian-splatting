@@ -19,7 +19,7 @@ editor/game restart. The names follow PlayCanvas's renderer constants
 | MSAA / VR / multiview | Not supported | Supported (standard pipeline) |
 | VRAM per splat | 240 B splat buffer plus per-frame tile/sort buffers (~2.8 GB at 6M splats) | 144 B in data textures (FP32 core + FP16 SH) plus a small order texture |
 | Scene setup | Requires a `CompositorEffect` on the scene compositor | Add the node, assign the resource — nothing else |
-| Colour handling | Blends SH colours in sRGB space, converts to linear once at composite time | Converts each splat's colour to linear, blends in the scene's linear pass |
+| Colour handling | Blends SH colours in sRGB space, converts to linear once at composite time | Converts each splat's colour to linear and blends in the scene's linear pass (`Forward Plus`/`Mobile`); on `Compatibility` it blends directly in sRGB, like Compute |
 
 ## How Compute Renders
 
@@ -95,10 +95,12 @@ Practical guidance:
 
 - Raster's global order can pop briefly during fast camera rotation; Compute
   never lags.
-- Raster blends splat-over-splat in linear space (each splat converted from
-  sRGB first), while Compute accumulates in sRGB space and converts once.
-  On matching poses of the demo scene the two backends differ by ~1.5/255 mean
-  pixel value, concentrated in soft splat edges.
+- On `Forward Plus`/`Mobile`, Raster blends splat-over-splat in linear space
+  (each splat converted from sRGB first), while Compute accumulates in sRGB
+  space and converts once; on `Compatibility` Raster also accumulates in sRGB
+  (`OUTPUT_IS_SRGB`), matching Compute's blend space. On matching poses of the
+  demo scene the backends differ by ~1.5/255 mean pixel value, concentrated in
+  soft splat edges.
 - Compute's tile pass culls sub-pixel splats slightly more aggressively.
 - In the editor, Raster's sort follows the first 3D editor viewport's camera.
 

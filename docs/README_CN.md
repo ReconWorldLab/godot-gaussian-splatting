@@ -212,7 +212,7 @@ compositor effect 脚本位于 `res://addons/gdgs/runtime/compositor/gaussian_co
 
 ## 0x09 已知限制
 
-- **Raster** 后端是 `3.2.0-beta` 的新实现：已在桌面 `Forward Plus` 上与 Compute 后端做过对比验证（相同视角截图平均差约 1.5/255），但真实移动硬件的覆盖仍在进行中，且其色彩转换在 `Compatibility` 渲染器上尚未做渲染器感知（splat 可能偏暗）。欢迎反馈实际效果。
+- **Raster** 后端是 `3.2.0-beta` 的新实现：已在桌面 `Forward Plus` 和 `Compatibility` 上与 Compute 后端做过对比验证（相同视角截图平均差约 1.5/255），但真实移动硬件的覆盖仍在进行中。欢迎反馈实际效果。
 - **Compute** 后端仅面向桌面 `Forward Plus`，依赖 Godot 的 compositor 与 compute 管线，因此无法在 `Mobile` / `Compatibility` 渲染器上运行；这些环境请使用 **Raster** 后端（见[渲染后端](#渲染后端)）。
 - **Raster** 后端采用全局（非每 tile 精确）的从后到前排序，可能比相机滞后一两帧，快速旋转时会有轻微弹跳。
 - 在 4K 显示器下，如果显存压力过高，可能会出现渲染错误或画面异常；将 Godot 视口分辨率调低后通常会有所缓解。该限制来源于 [issue #3](https://github.com/ReconWorldLab/godot-gaussian-splatting/issues/3)。
