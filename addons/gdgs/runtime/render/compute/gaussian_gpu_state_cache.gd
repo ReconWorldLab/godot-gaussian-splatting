@@ -2,7 +2,7 @@
 extends RefCounted
 class_name GaussianGpuStateCache
 
-const RenderingDeviceContext := preload("res://addons/gdgs/runtime/render/gaussian_rendering_device_context.gd")
+const RenderingDeviceContext := preload("res://addons/gdgs/runtime/render/compute/gaussian_rendering_device_context.gd")
 
 const TILE_SIZE := 16
 const WORKGROUP_SIZE := 512
@@ -15,12 +15,12 @@ const FLOATS_PER_CULLED_SPLAT := 16
 const BYTES_PER_FLOAT := 4
 const MAX_SORT_ELEMENTS_PER_SPLAT := 10
 
-const SHADER_PATH_PROJECTION := "res://addons/gdgs/runtime/render/shaders/compute/gsplat_projection.glsl"
-const SHADER_PATH_RADIX_UPSWEEP := "res://addons/gdgs/runtime/render/shaders/compute/radix_sort_upsweep.glsl"
-const SHADER_PATH_RADIX_SPINE := "res://addons/gdgs/runtime/render/shaders/compute/radix_sort_spine.glsl"
-const SHADER_PATH_RADIX_DOWNSWEEP := "res://addons/gdgs/runtime/render/shaders/compute/radix_sort_downsweep.glsl"
-const SHADER_PATH_BOUNDARIES := "res://addons/gdgs/runtime/render/shaders/compute/gsplat_boundaries.glsl"
-const SHADER_PATH_RENDER := "res://addons/gdgs/runtime/render/shaders/compute/gsplat_render.glsl"
+const SHADER_PATH_PROJECTION := "res://addons/gdgs/runtime/render/compute/shaders/gsplat_projection.glsl"
+const SHADER_PATH_RADIX_UPSWEEP := "res://addons/gdgs/runtime/render/compute/shaders/radix_sort_upsweep.glsl"
+const SHADER_PATH_RADIX_SPINE := "res://addons/gdgs/runtime/render/compute/shaders/radix_sort_spine.glsl"
+const SHADER_PATH_RADIX_DOWNSWEEP := "res://addons/gdgs/runtime/render/compute/shaders/radix_sort_downsweep.glsl"
+const SHADER_PATH_BOUNDARIES := "res://addons/gdgs/runtime/render/compute/shaders/gsplat_boundaries.glsl"
+const SHADER_PATH_RENDER := "res://addons/gdgs/runtime/render/compute/shaders/gsplat_render.glsl"
 
 class RenderState:
 	extends RefCounted

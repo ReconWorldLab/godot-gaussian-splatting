@@ -3,7 +3,7 @@ class_name GaussianCompositorEffect
 extends CompositorEffect
 
 const WORKGROUP_SIZE := 16
-const MANAGER_SCRIPT := preload("res://addons/gdgs/runtime/render/gaussian_render_manager.gd")
+const MANAGER_SCRIPT := preload("res://addons/gdgs/runtime/render/compute/gaussian_render_manager.gd")
 const DIRECT_TEXTURE_SHADER := preload("res://addons/gdgs/runtime/debug/shaders/direct_texture_overlay.gdshader")
 const DIRECT_TEXTURE_OVERLAY_NAME := "_GdgsDirectTextureOverlay"
 const DEFAULT_TEXTURE_USAGE_BITS := 0x18B

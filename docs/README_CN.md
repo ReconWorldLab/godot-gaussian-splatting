@@ -4,10 +4,11 @@
 
 [English README](../README.md)
 
-当前插件版本：`3.1.0`
+当前插件版本：`3.2.0-beta`
 
 ## 新闻
 
+- 2026-07-24：`3.2.0-beta` 版本引入双渲染后端：在原有 **Compute** 路径之外，新增 **Raster**（"贴纸"）后端，让 splat 走 Godot 标准渲染管线——从而支持 `Mobile` 和 `Compatibility` 渲染器、零调参的硬件深度遮挡，以及显著更低的显存占用。这是一个**测试版本（beta）**：Raster 后端是新实现，非常欢迎反馈。详见[渲染后端](#渲染后端)与 [docs/rendering-backends.md](rendering-backends.md)。
 - 2026-07-16：`3.1.0` 版本新增编辑器内碰撞生成：选中 `GaussianSplatNode` 即可直接从 Gaussian 数据生成 `StaticBody3D` 碰撞体。该管线移植自 [PlayCanvas splat-transform](https://github.com/playcanvas/splat-transform) 的碰撞方案。
 - 2026-04-20：GameFromScratch 发布了对本插件的文章介绍：[Gaussian Splats in Godot](https://gamefromscratch.com/gaussian-splats-in-godot/)
 - 2026-04-20：GameFromScratch 在 YouTube 发布了本插件的视频介绍：[观看视频](https://www.youtube.com/watch?v=VfGYLlDHdrw)
@@ -48,9 +49,26 @@
 ### 环境要求
 
 - Godot `4.3` 或更新版本。
-- 使用 `Forward Plus` 渲染后端。
-- 支持 compute shader 的桌面 GPU 和驱动。
 - 一份受支持格式的 Gaussian 资源文件。
+- 使用 **Compute** 渲染后端（桌面默认）时：需要 `Forward Plus` 渲染器，以及支持 compute shader 的 GPU 和驱动。
+- **Raster** 渲染后端不需要 compute，可在 `Mobile` 和 `Compatibility` 渲染器上运行（见[渲染后端](#渲染后端)）。
+
+### 渲染后端
+
+`gdgs` 提供两种渲染方式，由项目设置 `gdgs/rendering/backend` 在启动时选择一次：
+
+- **Compute**（`GSPLAT_RENDERER_COMPUTE`）——原有的基于 tile 的 compute 光栅化器。每帧在 GPU 上投影、对 `(tile | depth)` 键做 radix 排序、tile 内混合，并通过 `CompositorEffect` 与场景深度合成。排序在每个 tile 内精确、无相机延迟，但显存占用较高，且只能在 `Forward Plus` + compute 环境运行。
+- **Raster**（`GSPLAT_RENDERER_RASTER`）——排序四边形硬件光栅化器（“贴纸”方案）。splat 数据存于拆分的数据纹理（FP32 核心 + FP16 球谐系数），每个 splat 在 spatial shader 中投影为一个实例化四边形，走标准透明通道并使用硬件深度测试（无需 depth-bias 参数）。显存大幅降低，天然支持 MSAA/VR/multiview 以及 `Mobile`/`Compatibility`；代价是采用全局（非每 tile 精确）的从后到前排序——由多线程 CPU 计数排序产生——可能比相机滞后一两帧（轻微弹跳）。
+
+关于两种后端更深入的对比——管线、数据布局、排序与色彩处理——见
+[docs/rendering-backends.md](rendering-backends.md)（英文）。
+
+在 `项目 > 项目设置 > gdgs > rendering > backend` 中设置：
+
+- `Auto`（默认）——在支持 compute 的 `Forward Plus` 上选择 Compute，其余情况选择 Raster。
+- `Compute` / `Raster` —— 强制指定某个后端。
+
+后端选择**设计为仅在启动时生效**：修改设置需在下次编辑器/游戏重启后才会应用。若所选后端初始化失败，插件会打印警告并回退到另一个后端。Raster 后端走普通场景渲染，因此**不使用** `WorldEnvironment` 的 compositor（该步骤仅属于 Compute）。
 
 ### 直接试用
 
@@ -97,17 +115,20 @@
 
 ## 0x03 版本记录
 
-当前版本为 `3.1.0`。完整的逐版本记录见 [CHANGELOG.md](CHANGELOG.md)（英文）。
+当前版本为 `3.2.0-beta`。完整的逐版本记录见 [CHANGELOG.md](CHANGELOG.md)（英文）。
 
-`3.1.0` 亮点：
+`3.2.0-beta` 亮点：
 
-- 编辑器内从 Gaussian 数据生成碰撞（`StaticBody3D` + `ConcavePolygonShape3D`），支持 faces/smooth 网格、CPU/私有 GPU 体素化、场景模式、胶囊 carve 与网格导出。
-- 修复 push constants 对齐问题，适配 Godot `4.7`。
-- 新增 Asset Library 导出属性与图标。
+- 新增第二个可选渲染后端 **Raster**：splat 走 Godot 标准管线渲染，支持 `Mobile` 和 `Compatibility` 渲染器、MSAA/VR/multiview，遮挡由硬件深度测试完成（零调参），显存显著降低（FP32 核心 + FP16 SH 拆分数据纹理）。
+- 新增项目设置 `gdgs/rendering/backend`（`Auto` | `Compute` | `Raster`），启动时解析一次，后端初始化失败时自动故障隔离回退。
+- Raster 输出已与 Compute 后端在相同视角下做过对比验证（平均像素差约 1.5/255），包括与 Compute 合成器一致的逐 splat sRGB 转线性色彩处理。
+- **测试版说明**：Raster 后端是新实现；桌面 Forward+ 验证充分，真实移动硬件的覆盖仍在进行中。
 
 ## 0x04 功能特性
 
 - 支持导入 `.ply`、`.compressed.ply`、`.splat` 和 `.sog` 格式的 Gaussian 资源。
+- 提供两个可互换的渲染后端——基于 tile 的 **Compute** 与标准管线的 **Raster**——由一个项目设置选择，并支持自动回退。
+- 通过 Raster 后端支持 `Mobile` 和 `Compatibility` 渲染器。
 - 将不同输入格式统一转换为共享的 GPU 可用 Gaussian 资源。
 - 导入构建时默认对 Gaussian 数据做居中处理。
 - 当 `GaussianSplatNode` 以默认朝向进入场景树时，会自动初始化一个 `-180` 度的 Z 轴修正。
@@ -120,13 +141,16 @@
 
 ## 0x05 场景说明
 
-- `GaussianSplatNode` 只负责保存变换和资源引用，实际渲染由 compositor pass 完成，不走 Godot 标准 mesh 渲染管线。
-- 支持多个 `GaussianSplatNode` 同时存在，并在同一个 Gaussian pass 中统一渲染。
+- `GaussianSplatNode` 只负责保存变换和资源引用，实际渲染由当前后端完成：**Compute** 后端走 compositor pass，**Raster** 后端走 Godot 标准透明通道。
+- 支持多个 `GaussianSplatNode` 同时存在：Compute 在同一个 Gaussian pass 中统一渲染；Raster 为每个节点做一次实例化绘制。
+- `WorldEnvironment` 的 compositor 配置（快速开始第 5–7 步）只有 **Compute** 后端需要；使用 **Raster** 时，添加节点并赋值资源即可。
 - 导入后的 Gaussian 数据会按平均位置做居中处理，因此默认更接近场景原点。
 - 新加入场景且仍为默认朝向的 `GaussianSplatNode` 会在进入场景树时只做一次 Z 轴修正，避免复制或序列化后的节点再次被重复修正。
 - 如果你替换了源资源文件内容，请在 Godot 中重新导入，以确保生成资源与源文件保持同步。
 
 ## 0x06 后处理参数
+
+以下参数属于 **Compute** 后端的 compositor effect；Raster 后端没有深度调参项（遮挡由硬件深度测试完成）。
 
 compositor effect 脚本位于 `res://addons/gdgs/runtime/compositor/gaussian_compositor_effect.gd`。
 
@@ -176,20 +200,21 @@ compositor effect 脚本位于 `res://addons/gdgs/runtime/compositor/gaussian_co
 
 - `addons/gdgs`：插件根目录。
 - `addons/gdgs/importers`：导入插件、解析器、解码器和资源构建器。
-- `addons/gdgs/runtime`：运行时节点、资源、compositor 代码和渲染模块。
+- `addons/gdgs/runtime`：运行时节点、资源、后端接缝（`render/backend`）、Compute 后端（`render/compute` + `compositor` + `debug`）与 Raster 后端（`render/raster`）。
 - `addons/gdgs/editor`：编辑器侧扩展，例如 gizmo。
 - `addons/gdgs/collision`：可选的编辑器内碰撞生成模块（Inspector UI、工作线程管线、体素化 shader）。
-- `docs`：除英文 README 外的全部文档——中文 README、changelog、贡献指南和架构说明。
+- `docs`：除英文 README 外的全部文档——中文 README、changelog、贡献指南、架构说明和渲染后端对比。
 - `samples`：示例场景（`demo.tscn`）、示例 Gaussian 资源和媒体文件。
-- `tests`：CI 使用的 headless 冒烟测试。
+- `tests`：CI 使用的 headless 测试（冒烟、碰撞管线、Raster 排序器/数据纹理、后端选择器）。
 - `project.godot`：用于开发插件本身的工程文件；不会包含在 Asset Library 导出中。
 
 只有 `addons/` 会分发给用户，其余内容都是开发与文档配套。
 
 ## 0x09 已知限制
 
-- 当前仅面向桌面 `Forward Plus` 渲染。
-- 依赖 Godot 的 compositor 与 compute 管线，因此不支持 compatibility 和 mobile 渲染器。
+- **Raster** 后端是 `3.2.0-beta` 的新实现：已在桌面 `Forward Plus` 上与 Compute 后端做过对比验证（相同视角截图平均差约 1.5/255），但真实移动硬件的覆盖仍在进行中，且其色彩转换在 `Compatibility` 渲染器上尚未做渲染器感知（splat 可能偏暗）。欢迎反馈实际效果。
+- **Compute** 后端仅面向桌面 `Forward Plus`，依赖 Godot 的 compositor 与 compute 管线，因此无法在 `Mobile` / `Compatibility` 渲染器上运行；这些环境请使用 **Raster** 后端（见[渲染后端](#渲染后端)）。
+- **Raster** 后端采用全局（非每 tile 精确）的从后到前排序，可能比相机滞后一两帧，快速旋转时会有轻微弹跳。
 - 在 4K 显示器下，如果显存压力过高，可能会出现渲染错误或画面异常；将 Godot 视口分辨率调低后通常会有所缓解。该限制来源于 [issue #3](https://github.com/ReconWorldLab/godot-gaussian-splatting/issues/3)。
 - 当前渲染管理器仍以共享的 root 级运行时管理器存在，复杂的编辑器多场景或多视口工作流仍需要进一步验证。
 - 标准 `.ply` 仅支持 Gaussian Splat 所需的二进制小端布局，不支持任意点云属性结构。

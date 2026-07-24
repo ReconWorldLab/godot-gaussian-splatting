@@ -38,3 +38,13 @@ jobs:
         run: |
           ./godot --headless --path . --script tests/collision_test.gd 2>&1 | tee collision.log
           grep -q "collision tests passed" collision.log
+
+      - name: Raster backend tests
+        run: |
+          ./godot --headless --path . --script tests/raster_test.gd 2>&1 | tee raster.log
+          grep -q "raster tests passed" raster.log
+
+      - name: Backend selector tests
+        run: |
+          ./godot --headless --path . --script tests/backend_test.gd 2>&1 | tee backend.log
+          grep -q "backend tests passed" backend.log

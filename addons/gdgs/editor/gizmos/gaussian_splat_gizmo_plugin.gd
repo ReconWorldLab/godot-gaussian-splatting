@@ -2,17 +2,14 @@
 extends EditorNode3DGizmoPlugin
 class_name GaussianSplatGizmoPlugin
 
-const DEFAULT_POINT_SIZE := 2.0
+## Selection gizmo for GaussianSplatNode: draws the resource's AABB as a
+## wireframe box. Deliberately no point-cloud preview — drawing every splat
+## position as a point occludes the rendered splat itself.
+
 const DEFAULT_COLOR := Color(0.2, 0.8, 1.0)
 
-var _material: StandardMaterial3D
-
 func _init() -> void:
-	_material = StandardMaterial3D.new()
-	_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	_material.albedo_color = DEFAULT_COLOR
-	_material.set_flag(BaseMaterial3D.FLAG_USE_POINT_SIZE, true)
-	_material.point_size = DEFAULT_POINT_SIZE
+	create_material("bounds", DEFAULT_COLOR)
 
 func _get_gizmo_name() -> String: return "GaussianSplatNode"
 func _get_priority() -> int: return 0
@@ -26,14 +23,20 @@ func _redraw(gizmo: EditorNode3DGizmo) -> void:
 	var gaussian: GaussianResource = node.gaussian
 	if gaussian == null:
 		return
-	var positions: PackedVector3Array = gaussian.xyz
-	if positions.is_empty():
+	var aabb: AABB = gaussian.aabb
+	if aabb.size == Vector3.ZERO:
 		return
 
-	var arrays := []
-	arrays.resize(Mesh.ARRAY_MAX)
-	arrays[Mesh.ARRAY_VERTEX] = positions
+	# The 12 box edges: endpoints connected by an edge differ in exactly one
+	# bit of their AABB.get_endpoint index.
+	var lines := PackedVector3Array()
+	for i in range(8):
+		for bit in [1, 2, 4]:
+			var j: int = i | bit
+			if j != i:
+				lines.append(aabb.get_endpoint(i))
+				lines.append(aabb.get_endpoint(j))
 
-	var mesh := ArrayMesh.new()
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_POINTS, arrays)
-	gizmo.add_mesh(mesh, _material)
+	gizmo.add_lines(lines, get_material("bounds", gizmo))
+	# Keep the node click-selectable in the viewport via its bounds edges.
+	gizmo.add_collision_segments(lines)
