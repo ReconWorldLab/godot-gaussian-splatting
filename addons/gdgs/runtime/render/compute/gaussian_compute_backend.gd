@@ -14,7 +14,7 @@ extends "res://addons/gdgs/runtime/render/backend/gaussian_render_backend.gd"
 ## preload of a sibling under render/; deleting the Compute path is what disables
 ## this backend (the selector falls back to Raster).
 
-const MANAGER_SCRIPT := preload("res://addons/gdgs/runtime/render/gaussian_render_manager.gd")
+const MANAGER_SCRIPT := preload("res://addons/gdgs/runtime/render/compute/gaussian_render_manager.gd")
 const MANAGER_NODE_NAME := "_GdgsGaussianRenderManager"
 const MANAGER_PENDING_META := "_gdgs_manager_pending"
 

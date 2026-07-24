@@ -20,7 +20,7 @@ const BACKEND_AUTO := "Auto"
 const BACKEND_COMPUTE := "Compute"
 const BACKEND_RASTER := "Raster"
 
-const COMPUTE_BACKEND_PATH := "res://addons/gdgs/runtime/render/backend/gaussian_compute_backend.gd"
+const COMPUTE_BACKEND_PATH := "res://addons/gdgs/runtime/render/compute/gaussian_compute_backend.gd"
 const RASTER_BACKEND_PATH := "res://addons/gdgs/runtime/render/raster/raster_render_backend.gd"
 
 static var _resolved_backend: RefCounted = null

@@ -8,7 +8,7 @@
 // transparent pass with the hardware depth test (no depth-bias params).
 //
 // The covariance-projection math is a deliberate re-expression of the Compute
-// backend's GLSL (render/shaders/compute/gsplat_projection.glsl). The two MUST
+// backend's GLSL (render/compute/shaders/gsplat_projection.glsl). The two MUST
 // stay in parity; keep this comment in both when either changes.
 
 shader_type spatial;
