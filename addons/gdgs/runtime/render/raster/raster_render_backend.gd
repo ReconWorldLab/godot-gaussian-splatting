@@ -223,23 +223,31 @@ func _populate_entry(entry: Entry, node: Node) -> void:
 	entry.has_kicked = false
 
 ## Resolve the camera whose pose drives the sort. In-game this is the node's
-## viewport camera. In the editor the edited scene's viewport contains no
-## camera (the working camera lives inside the Node3DEditor viewport), so fall
-## back to the first 3D editor viewport. EditorInterface is resolved by name so
-## exported builds never reference the class.
+## viewport camera. In the editor it MUST be the Node3DEditor viewport's own
+## navigation camera: the edited scene's viewport also reports a "current"
+## camera whenever the scene contains a Camera3D, but that one is static and
+## not what the user is looking through — sorting to it reverses the blend
+## order on opposite view angles. EditorInterface is resolved by name so
+## exported builds never reference the class. With multiple 3D editor
+## viewports open, viewport 0 drives the sort.
 static func _find_camera(node: Node) -> Camera3D:
+	if Engine.is_editor_hint():
+		return _editor_camera()
 	var viewport := node.get_viewport()
 	if viewport != null:
-		var camera := viewport.get_camera_3d()
-		if camera != null:
-			return camera
-	if Engine.is_editor_hint() and Engine.has_singleton("EditorInterface"):
-		var editor_interface := Engine.get_singleton("EditorInterface")
-		if editor_interface != null and editor_interface.has_method("get_editor_viewport_3d"):
-			var editor_viewport: Object = editor_interface.call("get_editor_viewport_3d", 0)
-			if editor_viewport != null and editor_viewport.has_method("get_camera_3d"):
-				return editor_viewport.call("get_camera_3d") as Camera3D
+		return viewport.get_camera_3d()
 	return null
+
+static func _editor_camera() -> Camera3D:
+	if not Engine.has_singleton("EditorInterface"):
+		return null
+	var editor_interface := Engine.get_singleton("EditorInterface")
+	if editor_interface == null or not editor_interface.has_method("get_editor_viewport_3d"):
+		return null
+	var editor_viewport: Object = editor_interface.call("get_editor_viewport_3d", 0)
+	if editor_viewport == null or not editor_viewport.has_method("get_camera_3d"):
+		return null
+	return editor_viewport.call("get_camera_3d") as Camera3D
 
 func _ensure_driver(node: Node) -> void:
 	if _driver != null and is_instance_valid(_driver):
