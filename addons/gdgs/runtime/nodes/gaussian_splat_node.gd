@@ -3,9 +3,7 @@
 extends VisualInstance3D
 class_name GaussianSplatNode
 
-const MANAGER_SCRIPT := preload("res://addons/gdgs/runtime/render/gaussian_render_manager.gd")
-const MANAGER_NODE_NAME := "_GdgsGaussianRenderManager"
-const MANAGER_PENDING_META := "_gdgs_manager_pending"
+const SELECTOR_SCRIPT := preload("res://addons/gdgs/runtime/render/backend/gaussian_backend_selector.gd")
 
 @export var gaussian: GaussianResource:
 	set(value):
@@ -23,7 +21,7 @@ static func get_model_orientation_correction() -> Transform3D:
 func _enter_tree() -> void:
 	_apply_default_orientation_if_needed()
 	set_notify_transform(true)
-	call_deferred("_register_with_manager")
+	call_deferred("_register_with_backend")
 
 func _ready() -> void:
 	_connect_gaussian()
@@ -31,7 +29,7 @@ func _ready() -> void:
 		_rebuild_aabb()
 
 func _exit_tree() -> void:
-	_unregister_from_manager()
+	_unregister_from_backend()
 	_disconnect_gaussian()
 
 func _get_aabb() -> AABB:
@@ -47,7 +45,7 @@ func _set_gaussian(value: GaussianResource) -> void:
 	_connect_gaussian()
 	_rebuild_aabb()
 	if is_inside_tree():
-		_mark_manager_dirty()
+		_mark_backend_resource_dirty()
 	if Engine.is_editor_hint():
 		update_gizmos()
 
@@ -68,7 +66,7 @@ func _disconnect_gaussian() -> void:
 func _on_gaussian_changed() -> void:
 	_rebuild_aabb()
 	if is_inside_tree():
-		_mark_manager_dirty()
+		_mark_backend_resource_dirty()
 	if Engine.is_editor_hint():
 		update_gizmos()
 
@@ -85,61 +83,31 @@ func _apply_default_orientation_if_needed() -> void:
 		return
 	transform = transform * get_model_orientation_correction()
 
-func _register_with_manager() -> void:
+# The node never talks to a concrete backend: the selector resolves the active
+# one (Compute or Raster) once per session and every node shares that instance.
+func _register_with_backend() -> void:
 	if not is_inside_tree() or is_queued_for_deletion():
 		return
-	var manager := _ensure_manager()
-	if manager != null and manager.has_method("register_splat_node"):
-		manager.register_splat_node(self)
-	elif manager == null:
-		call_deferred("_register_with_manager")
+	var backend := SELECTOR_SCRIPT.get_backend(self)
+	if backend != null:
+		backend.attach_node(self)
 
-func _unregister_from_manager() -> void:
-	var manager := _get_manager()
-	if manager != null and manager.has_method("unregister_splat_node"):
-		manager.unregister_splat_node(self)
+func _unregister_from_backend() -> void:
+	var backend := SELECTOR_SCRIPT.get_backend(self)
+	if backend != null:
+		backend.detach_node(self)
 
-func _mark_manager_dirty() -> void:
-	var manager := _get_manager()
-	if manager != null and manager.has_method("mark_resource_dirty"):
-		manager.mark_resource_dirty(self)
+func _mark_backend_resource_dirty() -> void:
+	var backend := SELECTOR_SCRIPT.get_backend(self)
+	if backend != null:
+		backend.notify_resource_changed(self)
 
-func _mark_manager_transform_dirty() -> void:
-	var manager := _get_manager()
-	if manager != null and manager.has_method("mark_transform_dirty"):
-		manager.mark_transform_dirty(self)
-
-func _ensure_manager() -> Node:
-	if not is_inside_tree():
-		return null
-	var tree: SceneTree = get_tree()
-	if tree == null or tree.root == null:
-		return null
-
-	var root: Node = tree.root
-	var manager := root.get_node_or_null(MANAGER_NODE_NAME)
-	if manager != null:
-		return manager
-
-	if root.has_meta(MANAGER_PENDING_META):
-		return null
-
-	root.set_meta(MANAGER_PENDING_META, true)
-	manager = MANAGER_SCRIPT.new()
-	manager.name = MANAGER_NODE_NAME
-	root.call_deferred("add_child", manager)
-	root.call_deferred("remove_meta", MANAGER_PENDING_META)
-	return null
-
-func _get_manager() -> Node:
-	if not is_inside_tree():
-		return null
-	var tree: SceneTree = get_tree()
-	if tree == null or tree.root == null:
-		return null
-	return tree.root.get_node_or_null(MANAGER_NODE_NAME)
+func _mark_backend_transform_dirty() -> void:
+	var backend := SELECTOR_SCRIPT.get_backend(self)
+	if backend != null:
+		backend.notify_transform_changed(self)
 
 func _notification(what: int) -> void:
-	if (what == NOTIFICATION_TRANSFORM_CHANGED 
+	if (what == NOTIFICATION_TRANSFORM_CHANGED
 		or what == NOTIFICATION_VISIBILITY_CHANGED) and is_inside_tree():
-		_mark_manager_transform_dirty()
+		_mark_backend_transform_dirty()

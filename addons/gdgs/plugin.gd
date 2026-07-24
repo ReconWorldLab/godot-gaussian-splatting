@@ -4,12 +4,15 @@ extends EditorPlugin
 const MANAGER_NODE_NAME := "_GdgsGaussianRenderManager"
 const DIRECT_TEXTURE_OVERLAY_NAME := "_GdgsDirectTextureOverlay"
 const COLLISION_FEATURE_PATH := "res://addons/gdgs/collision/collision_feature.gd"
+const RENDER_BACKEND_SETTING := "gdgs/rendering/backend"
 
 var import_plugin: EditorImportPlugin
 var gizmo_plugin: EditorNode3DGizmoPlugin
 var collision_inspector_plugin: EditorInspectorPlugin
 
 func _enter_tree() -> void:
+	_register_project_settings()
+
 	import_plugin = preload("res://addons/gdgs/importers/gaussian_import_plugin.gd").new()
 	add_import_plugin(import_plugin)
 
@@ -42,6 +45,23 @@ func _exit_tree() -> void:
 			direct_texture_overlay.queue_free()
 
 	print("[gdgs] disable gaussian splatting plugin")
+
+# Exposes the startup-only backend choice in Project Settings as a dropdown.
+# Registered with an initial value of "Auto" so the entry stays out of
+# project.godot until the user explicitly picks another backend. The runtime
+# selector reads the same key with an "Auto" default, so this editor-only
+# registration is purely for the UI and never required for rendering.
+func _register_project_settings() -> void:
+	if not ProjectSettings.has_setting(RENDER_BACKEND_SETTING):
+		ProjectSettings.set_setting(RENDER_BACKEND_SETTING, "Auto")
+	ProjectSettings.add_property_info({
+		"name": RENDER_BACKEND_SETTING,
+		"type": TYPE_STRING,
+		"hint": PROPERTY_HINT_ENUM,
+		"hint_string": "Auto,Compute,Raster",
+	})
+	ProjectSettings.set_initial_value(RENDER_BACKEND_SETTING, "Auto")
+	ProjectSettings.set_as_basic(RENDER_BACKEND_SETTING, true)
 
 func _enable_collision_feature() -> void:
 	if not ResourceLoader.exists(COLLISION_FEATURE_PATH, "Script"):
