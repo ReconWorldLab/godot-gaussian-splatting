@@ -1,7 +1,12 @@
 extends SceneTree
 
-# THROWAWAY: render the demo with a chosen backend at 16:9 for A/B comparison.
-#   godot --path . --script res://_cmp.gd -- <raster|compute> <out.png> [angle_deg]
+# Visual A/B harness: renders samples/demo.tscn with a chosen backend at 16:9
+# into a PNG, so Raster and Compute output can be compared numerically.
+#
+#   godot --path . --script res://tests/capture_demo.gd -- <raster|compute> <out.png> [angle_deg]
+#
+# Needs a real window (it skips under --headless): both backends require a
+# rendering device, and Compute additionally needs the scene's CompositorEffect.
 
 var _vp: SubViewport
 var _frames := 0
