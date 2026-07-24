@@ -33,8 +33,8 @@ class Entry:
 	extends RefCounted
 	var mmi: MultiMeshInstance3D = null
 	var material: ShaderMaterial = null
-	var texture: Texture2D = null
-	var width := 0
+	var core_texture: Texture2D = null
+	var sh_texture: Texture2D = null
 	var point_count := 0
 	var job: RefCounted = null
 	var order_image: Image = null
@@ -115,10 +115,7 @@ func _drive_entry(entry: Entry) -> void:
 	var node := entry.mmi.get_parent()
 	if node == null or not (node is Node3D):
 		return
-	var viewport := node.get_viewport()
-	if viewport == null:
-		return
-	var camera := viewport.get_camera_3d()
+	var camera := _find_camera(node)
 	if camera == null:
 		return
 
@@ -179,8 +176,10 @@ func _populate_entry(entry: Entry, node: Node) -> void:
 
 	var material := ShaderMaterial.new()
 	material.shader = RASTER_SHADER
-	material.set_shader_parameter("splat_data", built["texture"])
-	material.set_shader_parameter("splat_data_width", int(built["width"]))
+	material.set_shader_parameter("splat_core", built["core_texture"])
+	material.set_shader_parameter("core_width", int(built["core_width"]))
+	material.set_shader_parameter("splat_sh", built["sh_texture"])
+	material.set_shader_parameter("sh_width", int(built["sh_width"]))
 	material.set_shader_parameter("point_count", count)
 	material.set_shader_parameter("order_data", order_texture)
 	material.set_shader_parameter("order_width", order_dims.x)
@@ -212,8 +211,8 @@ func _populate_entry(entry: Entry, node: Node) -> void:
 
 	entry.mmi = mmi
 	entry.material = material
-	entry.texture = built["texture"]
-	entry.width = int(built["width"])
+	entry.core_texture = built["core_texture"]
+	entry.sh_texture = built["sh_texture"]
 	entry.point_count = count
 	entry.job = job
 	entry.order_image = order_image
@@ -222,6 +221,25 @@ func _populate_entry(entry: Entry, node: Node) -> void:
 	entry.order_dims = order_dims
 	entry.last_dir_local = Vector3.ZERO
 	entry.has_kicked = false
+
+## Resolve the camera whose pose drives the sort. In-game this is the node's
+## viewport camera. In the editor the edited scene's viewport contains no
+## camera (the working camera lives inside the Node3DEditor viewport), so fall
+## back to the first 3D editor viewport. EditorInterface is resolved by name so
+## exported builds never reference the class.
+static func _find_camera(node: Node) -> Camera3D:
+	var viewport := node.get_viewport()
+	if viewport != null:
+		var camera := viewport.get_camera_3d()
+		if camera != null:
+			return camera
+	if Engine.is_editor_hint() and Engine.has_singleton("EditorInterface"):
+		var editor_interface := Engine.get_singleton("EditorInterface")
+		if editor_interface != null and editor_interface.has_method("get_editor_viewport_3d"):
+			var editor_viewport: Object = editor_interface.call("get_editor_viewport_3d", 0)
+			if editor_viewport != null and editor_viewport.has_method("get_camera_3d"):
+				return editor_viewport.call("get_camera_3d") as Camera3D
+	return null
 
 func _ensure_driver(node: Node) -> void:
 	if _driver != null and is_instance_valid(_driver):
@@ -248,11 +266,11 @@ func _free_contents(entry: Entry) -> void:
 		entry.mmi.queue_free()
 	entry.mmi = null
 	entry.material = null
-	entry.texture = null
+	entry.core_texture = null
+	entry.sh_texture = null
 	entry.order_image = null
 	entry.order_texture = null
 	entry.order_scratch = PackedFloat32Array()
-	entry.width = 0
 	entry.point_count = 0
 	entry.has_kicked = false
 

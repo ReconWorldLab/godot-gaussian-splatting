@@ -1,47 +1,68 @@
 @tool
 extends RefCounted
 
-## Builds the Raster backend's index-addressed data texture.
+## Builds the Raster backend's index-addressed data textures.
 ##
 ## The frozen GaussianResource blob (240 bytes = 60 float32 = 15 RGBA texels per
-## splat) is copied verbatim into an RGBA32F texture — zero repack, matching the
-## Compute backend's zero-repack upload. The shader addresses it as
-## `texel = splat_index * 15 + k`, `x = texel % width`, `y = texel / width`.
+## splat) is split into two textures:
 ##
-## Width is rounded to a multiple of TEXELS_PER_SPLAT so each splat's 15 texels
-## stay on a single row (no wrap mid-splat). FP16/quantized packing is a Phase 4+
-## concern layered on top; this baseline stays FP32.
+##   - core (RGBA32F, 3 texels/splat): position, 3D covariance and opacity —
+##     floats 0-11 of the struct. This MUST stay full float32: covariance
+##     entries are sigma^2 in metres^2, and Godot's FP16 conversion flushes
+##     values below 6.1e-5 (the FP16 minimum normal) to zero, so any splat axis
+##     thinner than ~8 mm collapses. An all-FP16 texture shipped once and
+##     visually reproduced the pre-2.1.0 covariance-projection bug.
+##   - sh (RGBA16F by default, 12 texels/splat): the 48 SH colour coefficients,
+##     floats 12-59. Unit-scale values, safe in half precision. SH is 80% of
+##     the data, so this still carries the Raster backend's VRAM win
+##     (240 -> 144 bytes per splat).
+##
+## The shader addresses each texture as `texel = splat_index * texels_per_splat
+## + k`, `x = texel % width`, `y = texel / width` (any width works; widths are
+## kept splat-aligned so no splat wraps mid-row).
+##
+## The split uses bulk C++ operations only (PackedByteArray.slice and
+## Image.get_region on strips of <= 16384 splat rows) — never a per-splat
+## GDScript loop, which would take minutes at millions of splats.
 
-const TEXELS_PER_SPLAT := 15
+const TEXELS_PER_SPLAT := 15        # source AoS blob texels
+const CORE_TEXELS_PER_SPLAT := 3
+const SH_TEXELS_PER_SPLAT := 12
 const FLOATS_PER_SPLAT := 60
-const BYTES_PER_TEXEL := 16      # RGBA32F
 const BYTES_PER_SPLAT := 240
+const BYTES_PER_TEXEL_F32 := 16     # RGBA32F
+const BYTES_PER_TEXEL_F16 := 8      # RGBA16F
 const MAX_TEXTURE_DIM := 16384
+const SPLIT_CHUNK_ROWS := 16384     # strip height for the bulk reshape
 
 # Order texture: one R32F texel per sorted entry, storing a splat index as a
-# float. Exact for indices up to 2^24 (~16.7M), which matches the single-2D
-# data-texture splat ceiling, so no packing is needed here.
+# float. Exact for indices up to 2^24 (~16.7M), which exceeds the SH texture's
+# splat ceiling, so no packing is needed here.
 const ORDER_BYTES_PER_TEXEL := 4
 
-## Returns {ok, texture, width} or {ok=false, reason}.
-## By default the GPU texture is packed as RGBA16F (half the VRAM of the source
-## FP32 blob) — the Raster backend's headline memory win. FP16 covers positions,
-## covariance, opacity and SH with ample range for typical captures.
-static func build(resource, half_precision: bool = true) -> Dictionary:
-	var built: Dictionary = build_image(resource, half_precision)
+## Returns {ok, core_texture, core_width, sh_texture, sh_width} or
+## {ok=false, reason}.
+static func build(resource, sh_half: bool = true) -> Dictionary:
+	var built: Dictionary = build_images(resource, sh_half)
 	if not bool(built.get("ok", false)):
 		return built
-	var texture := ImageTexture.create_from_image(built["image"])
-	if texture == null:
+	var core_texture := ImageTexture.create_from_image(built["core_image"])
+	var sh_texture := ImageTexture.create_from_image(built["sh_image"])
+	if core_texture == null or sh_texture == null:
 		return {"ok": false, "reason": "ImageTexture.create_from_image failed"}
-	return {"ok": true, "texture": texture, "width": int(built["width"])}
+	return {
+		"ok": true,
+		"core_texture": core_texture,
+		"core_width": int(built["core_width"]),
+		"sh_texture": sh_texture,
+		"sh_width": int(built["sh_width"]),
+	}
 
-## CPU-only half of build(): produces the padded data Image and its width.
+## CPU-only half of build(): produces the padded core/SH Images and widths.
 ## Split out so the packing/addressing can be unit-tested headless (no GPU).
-## With half_precision the RGBA32F image is bulk-converted to RGBA16F in C++
-## (Image.convert, no per-splat GDScript loop). Returns {ok, image, width} or
+## Returns {ok, core_image, core_width, sh_image, sh_width} or
 ## {ok=false, reason}.
-static func build_image(resource, half_precision: bool = false) -> Dictionary:
+static func build_images(resource, sh_half: bool = true) -> Dictionary:
 	if resource == null:
 		return {"ok": false, "reason": "null resource"}
 
@@ -54,28 +75,43 @@ static func build_image(resource, half_precision: bool = false) -> Dictionary:
 	if data.size() != expected:
 		return {"ok": false, "reason": "data size %d != expected %d" % [data.size(), expected]}
 
-	var total_texels := count * TEXELS_PER_SPLAT
-	var width := _choose_width(total_texels)
-	var height := int(ceil(float(total_texels) / float(width)))
-	if height > MAX_TEXTURE_DIM:
-		return {"ok": false, "reason": "%d splats exceed a single 2D data texture" % count}
+	# Bulk reshape: view the blob as 15-texel-wide strips (one splat per row),
+	# then cut the core and SH column bands out of each strip in C++.
+	var core_bytes := PackedByteArray()
+	var sh_bytes := PackedByteArray()
+	var row := 0
+	while row < count:
+		var rows := mini(SPLIT_CHUNK_ROWS, count - row)
+		var strip := Image.create_from_data(TEXELS_PER_SPLAT, rows, false, Image.FORMAT_RGBAF,
+			data.slice(row * BYTES_PER_SPLAT, (row + rows) * BYTES_PER_SPLAT))
+		if strip == null:
+			return {"ok": false, "reason": "strip image create failed"}
+		var core_strip := strip.get_region(Rect2i(0, 0, CORE_TEXELS_PER_SPLAT, rows))
+		var sh_strip := strip.get_region(Rect2i(CORE_TEXELS_PER_SPLAT, 0, SH_TEXELS_PER_SPLAT, rows))
+		if sh_half:
+			sh_strip.convert(Image.FORMAT_RGBAH)
+		core_bytes.append_array(core_strip.get_data())
+		sh_bytes.append_array(sh_strip.get_data())
+		row += rows
 
-	# Pad the tail so the image data is exactly width*height*16 bytes. Padding
-	# texels belong to no splat and are never fetched (point_count guards them).
-	var needed := width * height * BYTES_PER_TEXEL
-	var padded := data
-	if padded.size() != needed:
-		padded = data.duplicate()
-		padded.resize(needed)
+	var core := _stream_to_image(core_bytes, count * CORE_TEXELS_PER_SPLAT,
+		CORE_TEXELS_PER_SPLAT, Image.FORMAT_RGBAF, BYTES_PER_TEXEL_F32)
+	if not bool(core.get("ok", false)):
+		return core
+	var sh := _stream_to_image(sh_bytes, count * SH_TEXELS_PER_SPLAT,
+		SH_TEXELS_PER_SPLAT,
+		Image.FORMAT_RGBAH if sh_half else Image.FORMAT_RGBAF,
+		BYTES_PER_TEXEL_F16 if sh_half else BYTES_PER_TEXEL_F32)
+	if not bool(sh.get("ok", false)):
+		return sh
 
-	var image := Image.create_from_data(width, height, false, Image.FORMAT_RGBAF, padded)
-	if image == null:
-		return {"ok": false, "reason": "Image.create_from_data failed"}
-
-	if half_precision:
-		image.convert(Image.FORMAT_RGBAH)
-
-	return {"ok": true, "image": image, "width": width}
+	return {
+		"ok": true,
+		"core_image": core["image"],
+		"core_width": int(core["width"]),
+		"sh_image": sh["image"],
+		"sh_width": int(sh["width"]),
+	}
 
 # --- order texture (sorted splat indices) ---
 
@@ -109,12 +145,32 @@ static func order_to_bytes(order: PackedInt32Array, scratch: PackedFloat32Array,
 		scratch[i] = float(order[i])
 	return scratch.to_byte_array()
 
-static func _choose_width(total_texels: int) -> int:
-	if total_texels <= TEXELS_PER_SPLAT:
-		return TEXELS_PER_SPLAT
+# --- helpers ---
+
+## Lays a texel byte stream out as a roughly-square Image, width aligned to
+## `align` texels so no splat wraps mid-row. Pads the tail; padding texels
+## belong to no splat and are never fetched (point_count guards them).
+static func _stream_to_image(bytes: PackedByteArray, total_texels: int, align: int, format: int, bytes_per_texel: int) -> Dictionary:
+	var width := _choose_width(total_texels, align)
+	var height := int(ceil(float(total_texels) / float(width)))
+	if height > MAX_TEXTURE_DIM:
+		return {"ok": false, "reason": "%d texels exceed a single 2D texture" % total_texels}
+	var needed := width * height * bytes_per_texel
+	var padded := bytes
+	if padded.size() != needed:
+		padded = bytes.duplicate()
+		padded.resize(needed)
+	var image := Image.create_from_data(width, height, false, format, padded)
+	if image == null:
+		return {"ok": false, "reason": "Image.create_from_data failed"}
+	return {"ok": true, "image": image, "width": width}
+
+static func _choose_width(total_texels: int, align: int) -> int:
+	if total_texels <= align:
+		return align
 	# Aim for a roughly square texture, rounded up to a whole number of splats
 	# per row, capped at the largest splat-aligned width the GPU allows.
 	var side := int(ceil(sqrt(float(total_texels))))
-	var width := int(ceil(float(side) / float(TEXELS_PER_SPLAT))) * TEXELS_PER_SPLAT
-	var max_width := (MAX_TEXTURE_DIM / TEXELS_PER_SPLAT) * TEXELS_PER_SPLAT
-	return clampi(width, TEXELS_PER_SPLAT, max_width)
+	var width := int(ceil(float(side) / float(align))) * align
+	var max_width := (MAX_TEXTURE_DIM / align) * align
+	return clampi(width, align, max_width)

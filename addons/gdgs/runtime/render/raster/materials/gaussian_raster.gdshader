@@ -14,10 +14,15 @@
 shader_type spatial;
 render_mode unshaded, cull_disabled, depth_draw_never, blend_mix, shadows_disabled, fog_disabled, specular_disabled, ambient_light_disabled;
 
-// Index-addressed data texture: 15 RGBA32F texels per splat, laid out as the
-// frozen 60-float AoS struct (see CLAUDE.md / gaussian_resource.gd).
-uniform sampler2D splat_data : filter_nearest, repeat_disable;
-uniform int splat_data_width = 1;
+// Core data texture (RGBA32F, 3 texels per splat): position, 3D covariance and
+// opacity — floats 0-11 of the frozen AoS struct (see CLAUDE.md). Full float32
+// on purpose: covariance entries are sigma^2 and flush to zero in FP16 for any
+// splat axis thinner than ~8 mm (see raster_data_textures.gd).
+uniform sampler2D splat_core : filter_nearest, repeat_disable;
+uniform int core_width = 1;
+// SH colour coefficients (RGBA16F, 12 texels per splat): floats 12-59.
+uniform sampler2D splat_sh : filter_nearest, repeat_disable;
+uniform int sh_width = 1;
 uniform int point_count = 0;
 // Optional sorted-order indirection (Phase 3): order_data[sorted_pos] = splat
 // index, back-to-front. When use_order is false the order is the identity
@@ -54,15 +59,22 @@ const float SH_C3_5 = 1.445305721320277;
 const float SH_C3_6 = 0.5900435899266435;
 
 const int SPLATS_PER_INSTANCE = 128;
-const int TEXELS_PER_SPLAT = 15;
+const int CORE_TEXELS_PER_SPLAT = 3;
+const int SH_TEXELS_PER_SPLAT = 12;
 
 varying flat vec4 v_color; // rgb + opacity
 varying vec2 v_t;          // ellipse-local coordinate in std-dev units
 
-vec4 fetch_texel(int texel) {
-	int x = texel % splat_data_width;
-	int y = texel / splat_data_width;
-	return texelFetch(splat_data, ivec2(x, y), 0);
+vec4 fetch_core(int texel) {
+	int x = texel % core_width;
+	int y = texel / core_width;
+	return texelFetch(splat_core, ivec2(x, y), 0);
+}
+
+vec4 fetch_sh(int texel) {
+	int x = texel % sh_width;
+	int y = texel / sh_width;
+	return texelFetch(splat_sh, ivec2(x, y), 0);
 }
 
 // Degree-3 spherical-harmonics colour for a view direction. `c` holds the 48
@@ -116,10 +128,10 @@ void vertex() {
 			int oy = sorted_pos / order_width;
 			sidx = int(texelFetch(order_data, ivec2(ox, oy), 0).r + 0.5);
 		}
-		int base = sidx * TEXELS_PER_SPLAT;
-		vec4 t0 = fetch_texel(base + 0); // position.xyz, (pad)
-		vec4 t1 = fetch_texel(base + 1); // cov xx, xy, xz, yy
-		vec4 t2 = fetch_texel(base + 2); // cov yz, zz, opacity, (pad)
+		int base = sidx * CORE_TEXELS_PER_SPLAT;
+		vec4 t0 = fetch_core(base + 0); // position.xyz, (pad)
+		vec4 t1 = fetch_core(base + 1); // cov xx, xy, xz, yy
+		vec4 t2 = fetch_core(base + 2); // cov yz, zz, opacity, (pad)
 
 		vec3 splat_pos = t0.xyz;
 		float opacity = clamp(t2.z, 0.0, 1.0);
@@ -153,7 +165,7 @@ void vertex() {
 			mat3 screen_transform = jacobian * view_linear;
 			mat3 cov2d_m = screen_transform * world_cov * transpose(screen_transform);
 			float det_raw = cov2d_m[0][0] * cov2d_m[1][1] - cov2d_m[0][1] * cov2d_m[0][1];
-				vec3 cov2d = vec3(cov2d_m[0][0] + 0.3, cov2d_m[0][1], cov2d_m[1][1] + 0.3);
+			vec3 cov2d = vec3(cov2d_m[0][0] + 0.3, cov2d_m[0][1], cov2d_m[1][1] + 0.3);
 
 			float det = cov2d.x * cov2d.z - cov2d.y * cov2d.y;
 			if (det > 0.0) {
@@ -175,8 +187,18 @@ void vertex() {
 				}
 				vec2 e2 = vec2(-e1.y, e1.x);
 
-				float r1 = quad_extent * sqrt(lambda1);
-				float r2 = quad_extent * sqrt(lambda2);
+				// Clip the quad exactly where the Gaussian tail falls below
+				// alpha_cutoff: opacity*exp(-t^2/2) < cutoff <=> t > sqrt(2 ln(opacity/cutoff)).
+				// fragment() discards that region anyway, so low-opacity splats get
+				// proportionally smaller quads (less overdraw from faint floaters)
+				// with zero visible truncation. (A pow(opacity, 0.2)-style shrink is
+				// NOT safe here: unlike Compute's 16px-tile coverage rounding, the
+				// quad edge is exact, and mid-opacity splats would show hard clipped
+				// borders well above the discard threshold.)
+				float cutoff = max(alpha_cutoff, 1e-6);
+				float ext = min(quad_extent, sqrt(2.0 * log(max(opacity, cutoff) / cutoff)));
+				float r1 = ext * sqrt(lambda1);
+				float r2 = ext * sqrt(lambda2);
 
 				// corner ids: 0=(-,-) 1=(+,-) 2=(+,+) 3=(-,+)
 				vec2 corner_sign = vec2(
@@ -191,13 +213,14 @@ void vertex() {
 				POSITION = pos;
 
 				// std-dev coordinate at this corner; interpolates across the quad
-				v_t = corner_sign * quad_extent;
+				v_t = corner_sign * ext;
 
-				// View-dependent colour from degree-3 SH (texels 3..14 hold the
-				// 48 coefficients contiguously).
+				// View-dependent colour from degree-3 SH (the SH texture holds
+				// the 48 coefficients contiguously, 12 texels per splat).
 				float c[48];
+				int sh_base = sidx * SH_TEXELS_PER_SPLAT;
 				for (int j = 0; j < 12; j++) {
-					vec4 sh_texel = fetch_texel(base + 3 + j);
+					vec4 sh_texel = fetch_sh(sh_base + j);
 					c[j * 4 + 0] = sh_texel.x;
 					c[j * 4 + 1] = sh_texel.y;
 					c[j * 4 + 2] = sh_texel.z;
