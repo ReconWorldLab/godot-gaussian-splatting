@@ -48,9 +48,23 @@
 ### 环境要求
 
 - Godot `4.3` 或更新版本。
-- 使用 `Forward Plus` 渲染后端。
-- 支持 compute shader 的桌面 GPU 和驱动。
 - 一份受支持格式的 Gaussian 资源文件。
+- 使用 **Compute** 渲染后端（桌面默认）时：需要 `Forward Plus` 渲染器，以及支持 compute shader 的 GPU 和驱动。
+- **Raster** 渲染后端不需要 compute，可在 `Mobile` 和 `Compatibility` 渲染器上运行（见[渲染后端](#渲染后端)）。
+
+### 渲染后端
+
+`gdgs` 提供两种渲染方式，由项目设置 `gdgs/rendering/backend` 在启动时选择一次：
+
+- **Compute**（`GSPLAT_RENDERER_COMPUTE`）——原有的基于 tile 的 compute 光栅化器。每帧在 GPU 上投影、对 `(tile | depth)` 键做 radix 排序、tile 内混合，并通过 `CompositorEffect` 与场景深度合成。排序在每个 tile 内精确、无相机延迟，但显存占用较高，且只能在 `Forward Plus` + compute 环境运行。
+- **Raster**（`GSPLAT_RENDERER_RASTER`）——排序四边形硬件光栅化器（“贴纸”方案）。splat 数据存于 FP16 数据纹理，每个 splat 在 spatial shader 中投影为一个实例化四边形，走标准透明通道并使用硬件深度测试（无需 depth-bias 参数）。显存大幅降低，天然支持 MSAA/VR/multiview 以及 `Mobile`/`Compatibility`；代价是采用全局（非每 tile 精确）的从后到前排序——由多线程 CPU 计数排序产生——可能比相机滞后一两帧（轻微弹跳）。
+
+在 `项目 > 项目设置 > gdgs > rendering > backend` 中设置：
+
+- `Auto`（默认）——在支持 compute 的 `Forward Plus` 上选择 Compute，其余情况选择 Raster。
+- `Compute` / `Raster` —— 强制指定某个后端。
+
+后端选择**设计为仅在启动时生效**：修改设置需在下次编辑器/游戏重启后才会应用。若所选后端初始化失败，插件会打印警告并回退到另一个后端。Raster 后端走普通场景渲染，因此**不使用** `WorldEnvironment` 的 compositor（该步骤仅属于 Compute）。
 
 ### 直接试用
 
@@ -188,8 +202,8 @@ compositor effect 脚本位于 `res://addons/gdgs/runtime/compositor/gaussian_co
 
 ## 0x09 已知限制
 
-- 当前仅面向桌面 `Forward Plus` 渲染。
-- 依赖 Godot 的 compositor 与 compute 管线，因此不支持 compatibility 和 mobile 渲染器。
+- **Compute** 后端仅面向桌面 `Forward Plus`，依赖 Godot 的 compositor 与 compute 管线，因此无法在 `Mobile` / `Compatibility` 渲染器上运行；这些环境请使用 **Raster** 后端（见[渲染后端](#渲染后端)）。
+- **Raster** 后端采用全局（非每 tile 精确）的从后到前排序，可能比相机滞后一两帧，快速旋转时会有轻微弹跳。
 - 在 4K 显示器下，如果显存压力过高，可能会出现渲染错误或画面异常；将 Godot 视口分辨率调低后通常会有所缓解。该限制来源于 [issue #3](https://github.com/ReconWorldLab/godot-gaussian-splatting/issues/3)。
 - 当前渲染管理器仍以共享的 root 级运行时管理器存在，复杂的编辑器多场景或多视口工作流仍需要进一步验证。
 - 标准 `.ply` 仅支持 Gaussian Splat 所需的二进制小端布局，不支持任意点云属性结构。

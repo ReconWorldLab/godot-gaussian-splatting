@@ -48,9 +48,39 @@ These previews show roughly 6 million Gaussian points rendered together inside a
 ### Requirements
 
 - Godot `4.3` or newer.
-- `Forward Plus` rendering backend.
-- A desktop GPU and driver with compute shader support.
 - A supported Gaussian asset in one of the formats listed below.
+- For the **Compute** rendering backend (default on desktop): the `Forward Plus` renderer and a GPU/driver with compute shader support.
+- The **Raster** rendering backend has no compute requirement and also runs on the `Mobile` and `Compatibility` renderers (see [Rendering Backends](#rendering-backends)).
+
+### Rendering Backends
+
+`gdgs` can render splats two ways, selected once at startup by the
+`gdgs/rendering/backend` project setting:
+
+- **Compute** (`GSPLAT_RENDERER_COMPUTE`) — the original tile-based compute
+  rasterizer. Per-frame GPU projection, a radix sort of `(tile | depth)` keys,
+  tile-local blending, and composition against scene depth through a
+  `CompositorEffect`. Per-tile-exact ordering with zero camera lag, at the cost
+  of higher VRAM and a `Forward Plus`-only, compute-only requirement.
+- **Raster** (`GSPLAT_RENDERER_RASTER`) — a sorted-quad hardware rasterizer
+  ("sticker"). Splat data lives in FP16 data textures, one instanced quad mesh
+  is projected per splat in a spatial shader, and the standard transparent pass
+  blends it with the hardware depth test (no depth-bias params). Much lower VRAM,
+  MSAA/VR/multiview and `Mobile`/`Compatibility` support for free; the trade-off
+  is a global (not per-tile) back-to-front order — produced by a threaded CPU
+  counting sort — that can lag the camera a frame or two (mild popping).
+
+Set the backend in `Project > Project Settings > gdgs > rendering > backend`:
+
+- `Auto` (default) — Compute on `Forward Plus` with compute support, Raster
+  otherwise.
+- `Compute` / `Raster` — force a specific backend.
+
+Selection is **startup-only by design**: changing the setting takes effect on
+the next editor/game restart. If the chosen backend fails to initialize, the
+plugin logs a warning and falls back to the other one. The Raster backend draws
+through the normal scene, so it does **not** use the `WorldEnvironment`
+compositor (that step is Compute-only).
 
 ### Try It Directly
 
@@ -181,15 +211,15 @@ This importer is meant for Gaussian Splatting style assets, not generic point cl
 - `addons/gdgs/collision`: Optional editor-side collision generation (inspector UI, worker pipeline, voxelizer shader).
 - `docs`: All non-README documentation — Chinese README, changelog, contributing guide, and architecture notes.
 - `samples`: Demo scene (`demo.tscn`), sample Gaussian assets, and media.
-- `tests`: Headless smoke test used by CI.
+- `tests`: Headless tests used by CI (smoke, collision pipeline, Raster sorter/data-texture, backend selector).
 - `project.godot`: Development project for working on the plugin itself; excluded from Asset Library exports.
 
 Only `addons/` ships to users; everything else is development and documentation support.
 
 ## 0x09 Known Limitations
 
-- The plugin currently targets desktop `Forward Plus` rendering only.
-- Rendering depends on Godot's compositor and compute pipeline, so compatibility and mobile renderers are not supported.
+- The **Compute** backend targets desktop `Forward Plus` only and depends on Godot's compositor and compute pipeline, so it does not run on the `Mobile` or `Compatibility` renderers. Use the **Raster** backend there (see [Rendering Backends](#rendering-backends)).
+- The **Raster** backend uses a global (not per-tile-exact) back-to-front order that can lag the camera a frame or two, so fast rotations may show mild popping.
 - On 4K displays, rendering errors or visual glitches may occur when GPU memory pressure becomes too high. Reducing the Godot viewport resolution may help. Reported in [issue #3](https://github.com/ReconWorldLab/godot-gaussian-splatting/issues/3).
 - The render manager currently lives as a shared root-level runtime manager, so very complex editor multi-scene or multi-viewport workflows may still need additional validation.
 - Standard `.ply` support expects binary little-endian Gaussian Splat data, not arbitrary point cloud layouts.
