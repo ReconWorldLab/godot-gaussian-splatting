@@ -6,6 +6,14 @@
 .import/
 export.cfg
 export_credentials.cfg
+# Local export configuration and its output (the Android preset writes a ~110 MB
+# APK into output/). Export settings are per-developer; nothing here belongs to
+# the plugin, which ships through .gitattributes' addons-only export.
+export_presets.cfg
+output/
+
+# OS junk
+.DS_Store
 
 # Imported translations (automatically generated from CSV files)
 *.translation
