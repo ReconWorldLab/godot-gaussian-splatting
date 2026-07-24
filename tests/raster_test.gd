@@ -17,6 +17,7 @@ func _initialize() -> void:
 	_test_sorter_axis_order()
 	_test_choose_width_multiple_of_splat()
 	_test_data_image_roundtrip()
+	_test_data_image_fp16_roundtrip()
 	_test_order_dims()
 
 	if _failures.is_empty():
@@ -100,6 +101,31 @@ func _test_data_image_roundtrip() -> void:
 			var expected := Color(floats[fbase], floats[fbase + 1], floats[fbase + 2], floats[fbase + 3])
 			var d := absf(px.r - expected.r) + absf(px.g - expected.g) + absf(px.b - expected.b) + absf(px.a - expected.a)
 			_check(d < 1e-3, "texel s=%d k=%d mismatch got %s exp %s" % [s, k, str(px), str(expected)])
+
+func _test_data_image_fp16_roundtrip() -> void:
+	# Half-precision packing (the default GPU path) must preserve values within
+	# FP16 relative precision (~2^-10).
+	var count := 4
+	var res: Resource = _make_resource(count)
+	var built := DataTextures.build_image(res, true)
+	if not built.get("ok", false):
+		_failures.append("fp16 build_image failed: %s" % str(built.get("reason", "")))
+		return
+	var image: Image = built["image"]
+	_check(image.get_format() == Image.FORMAT_RGBAH, "fp16 image not RGBAH: %d" % image.get_format())
+	var width := int(built["width"])
+	var floats: PackedFloat32Array = res.get("point_data_float")
+	for s in range(count):
+		for k in [0, 5, 11, 14]:
+			var texel: int = s * DataTextures.TEXELS_PER_SPLAT + int(k)
+			var px := image.get_pixel(texel % width, texel / width)
+			var fbase: int = s * 60 + int(k) * 4
+			for ch in range(4):
+				var expected: float = floats[fbase + ch]
+				var got: float = [px.r, px.g, px.b, px.a][ch]
+				var tol: float = 0.01 * absf(expected) + 0.05
+				_check(absf(got - expected) <= tol,
+					"fp16 texel s=%d k=%d ch=%d got %f exp %f" % [s, k, ch, got, expected])
 
 func _test_order_dims() -> void:
 	for count in [1, 100, 1000000]:

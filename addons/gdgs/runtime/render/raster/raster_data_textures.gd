@@ -24,8 +24,11 @@ const MAX_TEXTURE_DIM := 16384
 const ORDER_BYTES_PER_TEXEL := 4
 
 ## Returns {ok, texture, width} or {ok=false, reason}.
-static func build(resource) -> Dictionary:
-	var built: Dictionary = build_image(resource)
+## By default the GPU texture is packed as RGBA16F (half the VRAM of the source
+## FP32 blob) — the Raster backend's headline memory win. FP16 covers positions,
+## covariance, opacity and SH with ample range for typical captures.
+static func build(resource, half_precision: bool = true) -> Dictionary:
+	var built: Dictionary = build_image(resource, half_precision)
 	if not bool(built.get("ok", false)):
 		return built
 	var texture := ImageTexture.create_from_image(built["image"])
@@ -33,10 +36,12 @@ static func build(resource) -> Dictionary:
 		return {"ok": false, "reason": "ImageTexture.create_from_image failed"}
 	return {"ok": true, "texture": texture, "width": int(built["width"])}
 
-## CPU-only half of build(): produces the padded RGBA32F Image and its width.
+## CPU-only half of build(): produces the padded data Image and its width.
 ## Split out so the packing/addressing can be unit-tested headless (no GPU).
-## Returns {ok, image, width} or {ok=false, reason}.
-static func build_image(resource) -> Dictionary:
+## With half_precision the RGBA32F image is bulk-converted to RGBA16F in C++
+## (Image.convert, no per-splat GDScript loop). Returns {ok, image, width} or
+## {ok=false, reason}.
+static func build_image(resource, half_precision: bool = false) -> Dictionary:
 	if resource == null:
 		return {"ok": false, "reason": "null resource"}
 
@@ -66,6 +71,9 @@ static func build_image(resource) -> Dictionary:
 	var image := Image.create_from_data(width, height, false, Image.FORMAT_RGBAF, padded)
 	if image == null:
 		return {"ok": false, "reason": "Image.create_from_data failed"}
+
+	if half_precision:
+		image.convert(Image.FORMAT_RGBAH)
 
 	return {"ok": true, "image": image, "width": width}
 

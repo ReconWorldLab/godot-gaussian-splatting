@@ -28,8 +28,31 @@ uniform bool use_order = false;
 // Quad half-size in standard deviations; splats fade to ~exp(-0.5 k^2) at the edge.
 uniform float quad_extent = 3.0;
 uniform float alpha_cutoff = 0.00392; // ~1/255
+// AA: the +0.3 covariance dilation (a sub-pixel low-pass) inflates small splats;
+// this optionally compensates opacity by sqrt(det_before / det_after) so total
+// energy is preserved (Mip-Splatting style). Off by default so the raster output
+// stays in parity with the Compute backend (which dilates but does not
+// compensate); enable it for slightly cleaner distant/aliased splats.
+uniform bool aa_compensation = false;
+// Sub-pixel discard: cull splats whose projected diameter is below this many
+// pixels (reduces distant shimmer). 0 disables it.
+uniform float min_pixel_size = 0.0;
 
 const float SH_C0 = 0.28209479177387814;
+const float SH_C1 = 0.4886025119029199;
+const float SH_C2_0 = 1.0925484305920792;
+const float SH_C2_1 = 1.0925484305920792;
+const float SH_C2_2 = 0.31539156525252005;
+const float SH_C2_3 = 1.0925484305920792;
+const float SH_C2_4 = 0.5462742152960396;
+const float SH_C3_0 = 0.5900435899266435;
+const float SH_C3_1 = 2.890611442640554;
+const float SH_C3_2 = 0.4570457994644658;
+const float SH_C3_3 = 0.3731763325901154;
+const float SH_C3_4 = 0.4570457994644658;
+const float SH_C3_5 = 1.445305721320277;
+const float SH_C3_6 = 0.5900435899266435;
+
 const int SPLATS_PER_INSTANCE = 128;
 const int TEXELS_PER_SPLAT = 15;
 
@@ -40,6 +63,36 @@ vec4 fetch_texel(int texel) {
 	int x = texel % splat_data_width;
 	int y = texel / splat_data_width;
 	return texelFetch(splat_data, ivec2(x, y), 0);
+}
+
+// Degree-3 spherical-harmonics colour for a view direction. `c` holds the 48
+// coefficients (16 basis x RGB, DC first) exactly as laid out in the resource.
+// This is a re-expression of get_color() in gsplat_projection.glsl; keep the two
+// in parity.
+vec3 eval_sh(vec3 view_dir, float c[48]) {
+	float x = view_dir.x;
+	float y = view_dir.y;
+	float z = view_dir.z;
+	float xx = x * x, yy = y * y, zz = z * z;
+	float xy = x * y, yz = y * z, xz = x * z;
+	vec3 rgb = vec3(0.5)
+		+ vec3(c[0], c[1], c[2]) * SH_C0
+		- vec3(c[3], c[4], c[5]) * SH_C1 * y
+		+ vec3(c[6], c[7], c[8]) * SH_C1 * z
+		- vec3(c[9], c[10], c[11]) * SH_C1 * x
+		+ vec3(c[12], c[13], c[14]) * SH_C2_0 * xy
+		- vec3(c[15], c[16], c[17]) * SH_C2_1 * yz
+		+ vec3(c[18], c[19], c[20]) * SH_C2_2 * (2.0 * zz - xx - yy)
+		- vec3(c[21], c[22], c[23]) * SH_C2_3 * xz
+		+ vec3(c[24], c[25], c[26]) * SH_C2_4 * (xx - yy)
+		- vec3(c[27], c[28], c[29]) * SH_C3_0 * y * (3.0 * xx - yy)
+		+ vec3(c[30], c[31], c[32]) * SH_C3_1 * x * yz
+		- vec3(c[33], c[34], c[35]) * SH_C3_2 * y * (4.0 * zz - xx - yy)
+		+ vec3(c[36], c[37], c[38]) * SH_C3_3 * z * (2.0 * zz - 3.0 * xx - 3.0 * yy)
+		- vec3(c[39], c[40], c[41]) * SH_C3_4 * x * (4.0 * zz - xx - yy)
+		+ vec3(c[42], c[43], c[44]) * SH_C3_5 * z * (xx - yy)
+		- vec3(c[45], c[46], c[47]) * SH_C3_6 * x * (xx - 3.0 * yy);
+	return max(vec3(0.0), rgb);
 }
 
 void vertex() {
@@ -67,7 +120,6 @@ void vertex() {
 		vec4 t0 = fetch_texel(base + 0); // position.xyz, (pad)
 		vec4 t1 = fetch_texel(base + 1); // cov xx, xy, xz, yy
 		vec4 t2 = fetch_texel(base + 2); // cov yz, zz, opacity, (pad)
-		vec4 t3 = fetch_texel(base + 3); // SH DC rgb, (basis1.r)
 
 		vec3 splat_pos = t0.xyz;
 		float opacity = clamp(t2.z, 0.0, 1.0);
@@ -100,7 +152,8 @@ void vertex() {
 				vec3(focal.x * m.x, focal.y * m.y, 0.0));
 			mat3 screen_transform = jacobian * view_linear;
 			mat3 cov2d_m = screen_transform * world_cov * transpose(screen_transform);
-			vec3 cov2d = vec3(cov2d_m[0][0] + 0.3, cov2d_m[0][1], cov2d_m[1][1] + 0.3);
+			float det_raw = cov2d_m[0][0] * cov2d_m[1][1] - cov2d_m[0][1] * cov2d_m[0][1];
+				vec3 cov2d = vec3(cov2d_m[0][0] + 0.3, cov2d_m[0][1], cov2d_m[1][1] + 0.3);
 
 			float det = cov2d.x * cov2d.z - cov2d.y * cov2d.y;
 			if (det > 0.0) {
@@ -110,6 +163,9 @@ void vertex() {
 				float lambda1 = mid + disc;
 				float lambda2 = max(mid - disc, 0.0);
 
+				// Sub-pixel discard: cull splats whose undilated projected diameter
+				// (geometric mean, 2*det_raw^0.25) is below min_pixel_size.
+				if (min_pixel_size <= 0.0 || 2.0 * sqrt(sqrt(max(det_raw, 0.0))) >= min_pixel_size) {
 				// eigenvector for lambda1 (major axis); e2 is perpendicular
 				vec2 e1;
 				if (abs(cov2d.y) < 1e-6) {
@@ -137,8 +193,24 @@ void vertex() {
 				// std-dev coordinate at this corner; interpolates across the quad
 				v_t = corner_sign * quad_extent;
 
-				vec3 color = max(vec3(0.0), 0.5 + SH_C0 * t3.xyz);
-				v_color = vec4(color, opacity);
+				// View-dependent colour from degree-3 SH (texels 3..14 hold the
+				// 48 coefficients contiguously).
+				float c[48];
+				for (int j = 0; j < 12; j++) {
+					vec4 sh_texel = fetch_texel(base + 3 + j);
+					c[j * 4 + 0] = sh_texel.x;
+					c[j * 4 + 1] = sh_texel.y;
+					c[j * 4 + 2] = sh_texel.z;
+					c[j * 4 + 3] = sh_texel.w;
+				}
+				vec3 view_dir = normalize(world_pos.xyz - CAMERA_POSITION_WORLD);
+				// AA: preserve energy lost/gained by the 0.3 dilation.
+				float eff_opacity = opacity;
+				if (aa_compensation) {
+					eff_opacity *= sqrt(clamp(det_raw / det, 0.0, 1.0));
+				}
+				v_color = vec4(eval_sh(view_dir, c), eff_opacity);
+				} // sub-pixel discard guard
 			}
 		}
 	}
