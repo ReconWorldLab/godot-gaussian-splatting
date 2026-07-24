@@ -13,6 +13,7 @@ var _failures: PackedStringArray = []
 
 func _initialize() -> void:
 	_test_sorter_is_permutation()
+	_test_sorter_pads_to_texel_count()
 	_test_sorter_back_to_front()
 	_test_sorter_axis_order()
 	_test_width_alignment()
@@ -44,15 +45,35 @@ func _make_points(n: int, seed: int) -> PackedVector3Array:
 	return pts
 
 func _test_sorter_is_permutation() -> void:
+	# The order is emitted as float32 (it feeds an R32F texture directly); every
+	# entry must still be an exact integer index and appear exactly once.
 	var pts := _make_points(500, 1)
 	var order := Sorter.sort(pts, Vector3(0.3, -0.5, 0.8).normalized())
 	_check(order.size() == pts.size(), "sorter size mismatch")
 	var seen := {}
-	for idx in order:
+	for value in order:
+		var idx := int(value)
+		_check(float(idx) == value, "sorter index is not integral: %f" % value)
 		_check(idx >= 0 and idx < pts.size(), "sorter index out of range: %d" % idx)
 		_check(not seen.has(idx), "sorter duplicate index: %d" % idx)
 		seen[idx] = true
 	_check(seen.size() == pts.size(), "sorter is not a permutation")
+
+func _test_sorter_pads_to_texel_count() -> void:
+	# The worker sizes its output to the order texture's padded texel count so the
+	# main thread can upload the bytes verbatim. Padding entries belong to no
+	# splat (the shader guards on point_count) and must stay zeroed.
+	var pts := _make_points(300, 3)
+	var dims := DataTextures.order_dimensions(pts.size())
+	var texels := dims.x * dims.y
+	_check(texels > pts.size(), "test needs a padded texel count, got %d" % texels)
+	var order := PackedFloat32Array()
+	Sorter.sort_into(pts, Vector3(0.3, -0.5, 0.8).normalized(), order, texels)
+	_check(order.size() == texels, "sorter did not pad to %d: %d" % [texels, order.size()])
+	for i in range(pts.size(), texels):
+		_check(order[i] == 0.0, "sorter padding not zeroed at %d: %f" % [i, order[i]])
+	_check(order.to_byte_array().size() == texels * DataTextures.ORDER_BYTES_PER_TEXEL,
+		"packed order bytes do not match the R32F texel count")
 
 func _test_sorter_back_to_front() -> void:
 	# Keys must be non-increasing far->near, within one bucket's tolerance.
@@ -63,7 +84,7 @@ func _test_sorter_back_to_front() -> void:
 	var tol := span / float(Sorter.BUCKET_COUNT) * 4.0
 	var prev := INF
 	for i in range(order.size()):
-		var k := pts[order[i]].dot(dir)
+		var k := pts[int(order[i])].dot(dir)
 		_check(k <= prev + tol, "sorter not back-to-front at %d: %f > %f" % [i, k, prev])
 		prev = k
 
@@ -73,7 +94,7 @@ func _test_sorter_axis_order() -> void:
 		Vector3(1, 0, 0), Vector3(5, 0, 0), Vector3(-3, 0, 0), Vector3(2, 0, 0)])
 	var order := Sorter.sort(pts, Vector3(1, 0, 0))
 	# expected x order descending: 5, 2, 1, -3 -> indices 1, 3, 0, 2
-	_check(order == PackedInt32Array([1, 3, 0, 2]), "axis order wrong: %s" % str(order))
+	_check(order == PackedFloat32Array([1, 3, 0, 2]), "axis order wrong: %s" % str(order))
 
 func _test_width_alignment() -> void:
 	# 250000 splats also exercises the chunked strip reshape (>1 chunk of rows).

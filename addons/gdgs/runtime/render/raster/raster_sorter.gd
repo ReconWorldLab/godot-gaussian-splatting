@@ -14,17 +14,27 @@ extends RefCounted
 ## depth range — ample resolution for splatting, O(n + buckets), and cheap enough
 ## to run every frame the camera moves (on a worker thread; see raster_sort_job).
 ## Within a bucket, ties keep original index order (stable).
+##
+## The scatter writes indices straight in the layout the R32F order texture
+## wants — float32, padded to the texture's texel count — so the main thread only
+## ever hands finished bytes to Image.set_data. This is deliberate: converting
+## int→float per splat on the main thread instead cost 23 ms at 1M splats every
+## time a sort landed, i.e. a dropped frame per re-sort.
 
 const BUCKET_BITS := 16
 const BUCKET_COUNT := 1 << BUCKET_BITS   # 65536
 
 ## Sort into a caller-provided buffer to avoid per-frame allocation. `out_order`
-## is resized to xyz.size() and filled with splat indices far→near. Returns the
+## is resized to `texel_count` — the order texture's padded texel count, or -1 for
+## exactly xyz.size() — and its first xyz.size() entries are filled with splat
+## indices far→near, stored as floats. Padding entries stay 0.0 and are never
+## fetched: the shader only reads sorted positions below point_count. Returns the
 ## same array for convenience.
-static func sort_into(xyz: PackedVector3Array, view_dir_local: Vector3, out_order: PackedInt32Array) -> PackedInt32Array:
+static func sort_into(xyz: PackedVector3Array, view_dir_local: Vector3, out_order: PackedFloat32Array, texel_count: int = -1) -> PackedFloat32Array:
 	var n := xyz.size()
-	if out_order.size() != n:
-		out_order.resize(n)
+	var size := maxi(texel_count, n) if texel_count >= 0 else n
+	if out_order.size() != size:
+		out_order.resize(size)
 	if n == 0:
 		return out_order
 
@@ -47,7 +57,7 @@ static func sort_into(xyz: PackedVector3Array, view_dir_local: Vector3, out_orde
 
 	if kmax <= kmin:
 		for i in range(n):
-			out_order[i] = i
+			out_order[i] = float(i)
 		return out_order
 
 	var scale := float(BUCKET_COUNT - 1) / (kmax - kmin)
@@ -69,11 +79,11 @@ static func sort_into(xyz: PackedVector3Array, view_dir_local: Vector3, out_orde
 	for i in range(n):
 		var b := int((keys[i] - kmin) * scale)
 		b = clampi(b, 0, BUCKET_COUNT - 1)
-		out_order[counts[b]] = i
+		out_order[counts[b]] = float(i)
 		counts[b] += 1
 
 	return out_order
 
 ## Convenience wrapper that allocates a fresh order array.
-static func sort(xyz: PackedVector3Array, view_dir_local: Vector3) -> PackedInt32Array:
-	return sort_into(xyz, view_dir_local, PackedInt32Array())
+static func sort(xyz: PackedVector3Array, view_dir_local: Vector3) -> PackedFloat32Array:
+	return sort_into(xyz, view_dir_local, PackedFloat32Array())

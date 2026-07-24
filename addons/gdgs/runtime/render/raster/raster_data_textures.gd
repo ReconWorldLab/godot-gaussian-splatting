@@ -124,26 +124,15 @@ static func order_dimensions(count: int) -> Vector2i:
 	var height := int(ceil(float(count) / float(width)))
 	return Vector2i(width, height)
 
-## Creates an R32F order Image of the given dimensions, initialised to identity
-## (texel i = i), so the first frames render in resource order until the first
-## sort completes.
+## Creates a zeroed R32F order Image of the given dimensions, to be filled by the
+## first completed sort. Its contents are not a valid order, so the material
+## starts with `use_order = false` (identity, i.e. resource order) and the
+## backend flips the flag on when it uploads real data — that keeps this a bulk
+## allocation instead of a per-splat identity fill.
 static func make_order_image(dims: Vector2i) -> Image:
-	var texels := dims.x * dims.y
-	var floats := PackedFloat32Array()
-	floats.resize(texels)
-	for i in range(texels):
-		floats[i] = float(i)
-	return Image.create_from_data(dims.x, dims.y, false, Image.FORMAT_RF, floats.to_byte_array())
-
-## Fills `scratch` (reused across frames, sized to dims.x*dims.y) with the sorted
-## order as floats and returns its byte view, ready for Image.set_data + update.
-static func order_to_bytes(order: PackedInt32Array, scratch: PackedFloat32Array, texel_count: int) -> PackedByteArray:
-	if scratch.size() != texel_count:
-		scratch.resize(texel_count)
-	var n := mini(order.size(), texel_count)
-	for i in range(n):
-		scratch[i] = float(order[i])
-	return scratch.to_byte_array()
+	var bytes := PackedByteArray()
+	bytes.resize(dims.x * dims.y * ORDER_BYTES_PER_TEXEL)   # zero-initialised
+	return Image.create_from_data(dims.x, dims.y, false, Image.FORMAT_RF, bytes)
 
 # --- helpers ---
 
