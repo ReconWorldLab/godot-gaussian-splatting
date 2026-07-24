@@ -7,7 +7,7 @@ The repository now mirrors the plugin's shipping layout.
 - `addons/gdgs`: The plugin itself.
 - `docs`: All non-README documentation (Chinese README, changelog, contributing guide, this file).
 - `samples`: Demo scene, example assets, and media.
-- `tests`: Headless smoke test used by CI.
+- `tests`: Headless tests used by CI (smoke, collision pipeline, Raster sorter/data textures, backend selector).
 - `project.godot`: Development project for working on the plugin; excluded from Asset Library exports.
 
 ## Plugin Modules
@@ -20,9 +20,21 @@ The repository now mirrors the plugin's shipping layout.
 
 ## Render Split
 
-The render stack is intentionally split by responsibility:
+Rendering is split into two interchangeable backends behind one seam; see
+[rendering-backends.md](rendering-backends.md) for the full comparison.
 
-- `gaussian_render_manager.gd`: Thin orchestration shell and singleton lifetime.
-- `gaussian_scene_registry.gd`: Tracks scene nodes and builds merged CPU-side buffers.
-- `gaussian_gpu_state_cache.gd`: Owns render-state caching and GPU resource lifetimes.
-- `gaussian_renderer.gd`: Executes per-frame render work against the active state cache.
+- `runtime/render/backend/`: The backend-agnostic seam — the abstract backend
+  interface and the selector that resolves the `gdgs/rendering/backend` project
+  setting once at startup, with fault-isolated fallback between backends.
+- `runtime/render/compute/`: The tile-based Compute backend — backend adapter,
+  orchestration manager (`gaussian_render_manager.gd`), scene registry, GPU
+  state cache, per-frame renderer, and the projection/radix-sort compute
+  shaders. Composites into the scene through `runtime/compositor/` (which stays
+  outside this folder because user scenes reference its script path).
+- `runtime/render/raster/`: The sorted-quad Raster backend — data-texture
+  packing, instanced quad mesh, threaded CPU counting sort with double-buffered
+  order handoff, and the spatial shader. Draws through the standard transparent
+  pass; no compositor.
+
+Each backend folder is deletable as a unit: the selector loads backend scripts
+with guarded `load()` calls and falls back if one is missing or broken.

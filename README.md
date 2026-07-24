@@ -4,10 +4,11 @@ Maintainer: ReconWorldLab
 
 [中文 README](docs/README_CN.md)
 
-Current plugin version: `3.1.0`
+Current plugin version: `3.2.0-beta`
 
 ## News
 
+- 2026-07-24: Version `3.2.0-beta` introduces dual rendering backends: alongside the original **Compute** path, the new **Raster** ("sticker") backend renders splats through Godot's standard pipeline — bringing `Mobile` and `Compatibility` renderer support, hardware depth-tested occlusion with zero tuning parameters, and materially lower VRAM. This is a **beta release**: the Raster backend is new and feedback is very welcome. See [Rendering Backends](#rendering-backends) and [docs/rendering-backends.md](docs/rendering-backends.md).
 - 2026-07-16: Version `3.1.0` adds editor-side collision generation: select a `GaussianSplatNode` and generate a `StaticBody3D` collision body directly from the Gaussian data. The pipeline is a GDScript port of the collision approach in [PlayCanvas splat-transform](https://github.com/playcanvas/splat-transform).
 - 2026-04-20: Featured by [GameFromScratch in an article](https://gamefromscratch.com/gaussian-splats-in-godot/).
 - 2026-04-20: Covered by [GameFromScratch on YouTube](https://www.youtube.com/watch?v=VfGYLlDHdrw).
@@ -63,12 +64,16 @@ These previews show roughly 6 million Gaussian points rendered together inside a
   `CompositorEffect`. Per-tile-exact ordering with zero camera lag, at the cost
   of higher VRAM and a `Forward Plus`-only, compute-only requirement.
 - **Raster** (`GSPLAT_RENDERER_RASTER`) — a sorted-quad hardware rasterizer
-  ("sticker"). Splat data lives in FP16 data textures, one instanced quad mesh
-  is projected per splat in a spatial shader, and the standard transparent pass
-  blends it with the hardware depth test (no depth-bias params). Much lower VRAM,
-  MSAA/VR/multiview and `Mobile`/`Compatibility` support for free; the trade-off
-  is a global (not per-tile) back-to-front order — produced by a threaded CPU
-  counting sort — that can lag the camera a frame or two (mild popping).
+  ("sticker"). Splat data lives in split data textures (FP32 core + FP16
+  spherical harmonics), one instanced quad mesh is projected per splat in a
+  spatial shader, and the standard transparent pass blends it with the hardware
+  depth test (no depth-bias params). Much lower VRAM, MSAA/VR/multiview and
+  `Mobile`/`Compatibility` support for free; the trade-off is a global (not
+  per-tile) back-to-front order — produced by a threaded CPU counting sort —
+  that can lag the camera a frame or two (mild popping).
+
+A deeper comparison — pipeline, data layout, sorting, and colour handling —
+lives in [docs/rendering-backends.md](docs/rendering-backends.md).
 
 Set the backend in `Project > Project Settings > gdgs > rendering > backend`:
 
@@ -127,17 +132,20 @@ The collision module is optional and fault-isolated: if `addons/gdgs/collision` 
 
 ## 0x03 Version History
 
-The current version is `3.1.0`. The full per-version history lives in [docs/CHANGELOG.md](docs/CHANGELOG.md).
+The current version is `3.2.0-beta`. The full per-version history lives in [docs/CHANGELOG.md](docs/CHANGELOG.md).
 
-Highlights of `3.1.0`:
+Highlights of `3.2.0-beta`:
 
-- Editor-side collision generation from Gaussian data (`StaticBody3D` + `ConcavePolygonShape3D`), with faces/smooth meshing, CPU/private-GPU voxelization, scene modes, capsule carve, and mesh export.
-- Godot `4.7` push-constant alignment compatibility fix.
-- Asset Library export attributes and icon.
+- A second, selectable rendering backend — **Raster** — that draws splats through Godot's standard pipeline, enabling the `Mobile` and `Compatibility` renderers, MSAA/VR/multiview, and hardware depth-tested occlusion with zero tuning parameters, at materially lower VRAM (FP32 core + FP16 SH data textures).
+- The `gdgs/rendering/backend` project setting (`Auto` | `Compute` | `Raster`) with startup-time resolution and fault-isolated fallback between backends.
+- Raster output verified against the Compute backend on matching captures (mean pixel difference ~1.5/255), including per-splat sRGB-to-linear colour handling matching the Compute compositor.
+- **Beta status**: the Raster backend is new; desktop Forward+ is well verified, real mobile hardware coverage is still in progress.
 
 ## 0x04 Features
 
 - Import supported Gaussian assets from `.ply`, `.compressed.ply`, `.splat`, and `.sog`.
+- Render through either of two interchangeable backends — tile-based **Compute** or standard-pipeline **Raster** — selected by one project setting, with automatic fallback.
+- Run on the `Mobile` and `Compatibility` renderers through the Raster backend.
 - Convert different source formats into a shared GPU-ready Gaussian resource.
 - Center imported Gaussian data by default during resource build.
 - Initialize new `GaussianSplatNode` instances with a default `-180` degree Z correction when they enter the tree in the default orientation.
@@ -150,13 +158,16 @@ Highlights of `3.1.0`:
 
 ## 0x05 Scene Setup Notes
 
-- `GaussianSplatNode` stores transform and resource references. Actual rendering is performed by the compositor pass, not by Godot's standard mesh pipeline.
-- Multiple `GaussianSplatNode` instances are supported and are rendered together in the same Gaussian pass.
+- `GaussianSplatNode` stores transform and resource references. Actual rendering is performed by the active backend: the **Compute** backend draws through the compositor pass, while the **Raster** backend draws through Godot's standard transparent pass.
+- Multiple `GaussianSplatNode` instances are supported: Compute renders them together in one Gaussian pass; Raster renders one instanced draw per node.
+- The `WorldEnvironment` compositor setup (Quick Start steps 5–7) is only required for the **Compute** backend; with **Raster**, adding the node and assigning the resource is enough.
 - Imported Gaussian data is centered around its average position during resource build, so scenes start closer to the origin by default.
 - A newly added `GaussianSplatNode` applies a one-time default Z correction when it enters the tree with the identity orientation. This keeps duplicated and serialized nodes from receiving the correction twice.
 - If you replace the source asset contents, reimport it in Godot so the generated resource stays in sync.
 
 ## 0x06 Post Process Parameters
+
+These parameters belong to the **Compute** backend's compositor effect; the Raster backend has no depth-tuning parameters (occlusion is the hardware depth test).
 
 The compositor effect script is `res://addons/gdgs/runtime/compositor/gaussian_compositor_effect.gd`.
 
@@ -206,10 +217,10 @@ This importer is meant for Gaussian Splatting style assets, not generic point cl
 
 - `addons/gdgs`: Plugin root in this repository.
 - `addons/gdgs/importers`: Import plugins, parsers, decoders, and resource builders.
-- `addons/gdgs/runtime`: Runtime nodes, resources, compositor code, and render modules.
+- `addons/gdgs/runtime`: Runtime nodes, resources, the backend seam (`render/backend`), the Compute backend (`render/compute` + `compositor` + `debug`), and the Raster backend (`render/raster`).
 - `addons/gdgs/editor`: Editor-only integrations such as gizmos.
 - `addons/gdgs/collision`: Optional editor-side collision generation (inspector UI, worker pipeline, voxelizer shader).
-- `docs`: All non-README documentation — Chinese README, changelog, contributing guide, and architecture notes.
+- `docs`: All non-README documentation — Chinese README, changelog, contributing guide, architecture notes, and the rendering-backend comparison.
 - `samples`: Demo scene (`demo.tscn`), sample Gaussian assets, and media.
 - `tests`: Headless tests used by CI (smoke, collision pipeline, Raster sorter/data-texture, backend selector).
 - `project.godot`: Development project for working on the plugin itself; excluded from Asset Library exports.
@@ -218,6 +229,7 @@ Only `addons/` ships to users; everything else is development and documentation 
 
 ## 0x09 Known Limitations
 
+- The **Raster** backend is new in `3.2.0-beta`: it is verified against the Compute backend on desktop `Forward Plus` (matching-pose captures differ by ~1.5/255 on average), but coverage on real mobile hardware is still in progress, and its colour conversion is not yet renderer-aware on `Compatibility` (splats may render slightly dark there). Please report what you see.
 - The **Compute** backend targets desktop `Forward Plus` only and depends on Godot's compositor and compute pipeline, so it does not run on the `Mobile` or `Compatibility` renderers. Use the **Raster** backend there (see [Rendering Backends](#rendering-backends)).
 - The **Raster** backend uses a global (not per-tile-exact) back-to-front order that can lag the camera a frame or two, so fast rotations may show mild popping.
 - On 4K displays, rendering errors or visual glitches may occur when GPU memory pressure becomes too high. Reducing the Godot viewport resolution may help. Reported in [issue #3](https://github.com/ReconWorldLab/godot-gaussian-splatting/issues/3).
