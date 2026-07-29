@@ -4,6 +4,11 @@ extends VisualInstance3D
 class_name GaussianSplatNode
 
 const SELECTOR_SCRIPT := preload("res://addons/gdgs/runtime/render/backend/gaussian_backend_selector.gd")
+# Guarded load, not preload: runtime/lighting/ is deletable, and losing it must
+# only cost the shadow caster. GaussianLightingResource itself lives in
+# runtime/resources/ (the data-contract layer) precisely so the export below
+# keeps parsing when runtime/lighting/ is gone.
+const PROXY_SHADOW_CASTER_PATH := "res://addons/gdgs/runtime/lighting/proxy_shadow_caster.gd"
 
 @export var gaussian: GaussianResource:
 	set(value):
@@ -11,7 +16,26 @@ const SELECTOR_SCRIPT := preload("res://addons/gdgs/runtime/render/backend/gauss
 	get:
 		return _gaussian
 
+@export_group("Relighting")
+## Baked lighting proxy: per-splat surface normals plus the proxy mesh used as
+## a shadow caster. Bake it from the GDGS Lighting inspector panel.
+@export var lighting: GaussianLightingResource:
+	set(value):
+		_set_lighting(value)
+	get:
+		return _lighting
+
+## Mounts the baked proxy mesh as a SHADOWS_ONLY MeshInstance3D so this
+## Gaussian scene casts shadows onto ordinary Godot geometry.
+@export var relight_cast_shadows: bool = true:
+	set(value):
+		_set_relight_cast_shadows(value)
+	get:
+		return _relight_cast_shadows
+
 var _gaussian: GaussianResource
+var _lighting: GaussianLightingResource
+var _relight_cast_shadows := true
 var _local_aabb: AABB = AABB()
 var _aabb_valid := false
 
@@ -27,6 +51,7 @@ func _ready() -> void:
 	_connect_gaussian()
 	if not _aabb_valid:
 		_rebuild_aabb()
+	_sync_lighting_proxy()
 
 func _exit_tree() -> void:
 	_unregister_from_backend()
@@ -48,6 +73,38 @@ func _set_gaussian(value: GaussianResource) -> void:
 		_mark_backend_resource_dirty()
 	if Engine.is_editor_hint():
 		update_gizmos()
+
+func _set_lighting(value: GaussianLightingResource) -> void:
+	if _lighting == value:
+		return
+	_lighting = value
+	_sync_lighting_proxy()
+
+func _set_relight_cast_shadows(value: bool) -> void:
+	if _relight_cast_shadows == value:
+		return
+	_relight_cast_shadows = value
+	_sync_lighting_proxy()
+
+# Mounting the proxy is the one piece of relighting that is free: a
+# SHADOWS_ONLY MeshInstance3D is invisible to the camera but still writes into
+# every light's shadow map, so the splat scene shadows ordinary geometry under
+# both backends. Lighting the splats themselves is the light rig's job.
+func _sync_lighting_proxy() -> void:
+	if not is_inside_tree():
+		return
+	var caster_script := _load_proxy_shadow_caster()
+	if caster_script == null:
+		return
+	caster_script.sync(self, _lighting, _relight_cast_shadows)
+
+func _load_proxy_shadow_caster() -> GDScript:
+	if not ResourceLoader.exists(PROXY_SHADOW_CASTER_PATH, "Script"):
+		return null
+	var script: Variant = load(PROXY_SHADOW_CASTER_PATH)
+	if script == null or not (script is GDScript):
+		return null
+	return script as GDScript
 
 func _connect_gaussian() -> void:
 	if _gaussian == null:

@@ -4,11 +4,13 @@ extends EditorPlugin
 const MANAGER_NODE_NAME := "_GdgsGaussianRenderManager"
 const DIRECT_TEXTURE_OVERLAY_NAME := "_GdgsDirectTextureOverlay"
 const COLLISION_FEATURE_PATH := "res://addons/gdgs/collision/collision_feature.gd"
+const LIGHTING_FEATURE_PATH := "res://addons/gdgs/lighting/lighting_feature.gd"
 const RENDER_BACKEND_SETTING := "gdgs/rendering/backend"
 
 var import_plugin: EditorImportPlugin
 var gizmo_plugin: EditorNode3DGizmoPlugin
 var collision_inspector_plugin: EditorInspectorPlugin
+var lighting_inspector_plugin: EditorInspectorPlugin
 
 func _enter_tree() -> void:
 	_register_project_settings()
@@ -21,11 +23,14 @@ func _enter_tree() -> void:
 
 	print("[gdgs] enable gaussian splatting plugin")
 
-	# Registered last and loaded at runtime: if the optional collision module
-	# is missing or fails to parse, rendering above is already up and stays up.
+	# Registered last and loaded at runtime: if an optional editor module is
+	# missing or fails to parse, rendering above is already up and stays up.
+	# Lighting comes after collision because its bake depends on it.
 	_enable_collision_feature()
+	_enable_lighting_feature()
 
 func _exit_tree() -> void:
+	_disable_lighting_feature()
 	_disable_collision_feature()
 	if import_plugin != null:
 		remove_import_plugin(import_plugin)
@@ -98,3 +103,39 @@ func _disable_collision_feature() -> void:
 		collision_inspector_plugin.call(&"shutdown")
 	remove_inspector_plugin(collision_inspector_plugin)
 	collision_inspector_plugin = null
+
+# Same guarded pattern as collision: the lighting bake module is editor-only
+# and optional. Its self-test also reports when the collision module it depends
+# on is missing, and either way already-baked lighting resources keep
+# rendering — nothing under runtime/ imports this module.
+func _enable_lighting_feature() -> void:
+	if not ResourceLoader.exists(LIGHTING_FEATURE_PATH, "Script"):
+		print("[gdgs] lighting feature not present; skipping")
+		return
+	var feature_script: Variant = load(LIGHTING_FEATURE_PATH)
+	if feature_script == null or not feature_script is GDScript:
+		push_warning("[gdgs] lighting feature failed to load; splat rendering is unaffected")
+		return
+	var gdscript := feature_script as GDScript
+	if not gdscript.can_instantiate():
+		push_warning("[gdgs] lighting feature failed to compile; splat rendering is unaffected")
+		return
+	var healthy: Variant = gdscript.call(&"self_test")
+	if not (healthy is bool and healthy == true):
+		# self_test() pushes its own, more specific warning.
+		return
+	var inspector: Variant = gdscript.call(&"create_inspector_plugin", get_undo_redo(), get_editor_interface())
+	if not inspector is EditorInspectorPlugin:
+		push_warning("[gdgs] lighting feature returned no inspector plugin; splat rendering is unaffected")
+		return
+	lighting_inspector_plugin = inspector
+	add_inspector_plugin(lighting_inspector_plugin)
+	print("[gdgs] lighting feature enabled")
+
+func _disable_lighting_feature() -> void:
+	if lighting_inspector_plugin == null:
+		return
+	if lighting_inspector_plugin.has_method("shutdown"):
+		lighting_inspector_plugin.call(&"shutdown")
+	remove_inspector_plugin(lighting_inspector_plugin)
+	lighting_inspector_plugin = null

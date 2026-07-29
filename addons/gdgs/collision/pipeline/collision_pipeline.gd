@@ -201,7 +201,7 @@ static func generate_from_snapshot_settings(
 	}
 	stats.merge(scene_stats, true)
 	COMMON.report_progress(control, "Collision geometry ready", 1.0)
-	return {
+	var result := {
 		"ok": true,
 		"error": "",
 		"cancelled": false,
@@ -209,6 +209,13 @@ static func generate_from_snapshot_settings(
 		"geometry": mesh_result["geometry"],
 		"stats": stats,
 	}
+	if settings["keep_grid"]:
+		# Opt-in for callers that need the occupancy field the mesh was
+		# contoured from, not just the contour (the lighting-proxy baker builds
+		# its normal/AO field from it). VoxelGrid is a plain RefCounted over
+		# packed data, so this stays worker-safe.
+		result["grid"] = grid
+	return result
 
 
 static func _resolve_voxel_size(requested: float, longest_axis: float) -> float:
@@ -305,6 +312,7 @@ static func normalize_settings(raw_settings: Dictionary) -> Dictionary:
 	var capsule_radius := float(raw_settings.get("capsule_radius", 0.2))
 	var seed_value: Variant = raw_settings.get("seed", Vector3.ZERO)
 	var floor_y_sign := float(raw_settings.get("floor_y_sign", 1.0))
+	var keep_grid := bool(raw_settings.get("keep_grid", false))
 	if not is_finite(voxel_size) or voxel_size < 0.0:
 		return COMMON.failure("voxel_size must be zero (auto) or a finite positive number.")
 	if not is_finite(opacity_cutoff) or opacity_cutoff <= 0.0 or opacity_cutoff >= 1.0:
@@ -340,6 +348,7 @@ static func normalize_settings(raw_settings: Dictionary) -> Dictionary:
 			"capsule_radius": capsule_radius,
 			"seed": seed_value,
 			"floor_y_sign": signf(floor_y_sign),
+			"keep_grid": keep_grid,
 		},
 	}
 
