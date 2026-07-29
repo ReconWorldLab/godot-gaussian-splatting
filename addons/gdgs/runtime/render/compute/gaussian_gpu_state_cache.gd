@@ -14,6 +14,11 @@ const FLOATS_PER_SPLAT := 60
 const FLOATS_PER_CULLED_SPLAT := 16
 const BYTES_PER_FLOAT := 4
 const MAX_SORT_ELEMENTS_PER_SPLAT := 10
+# Relighting. Must match gsplat_projection.glsl and gaussian_light_rig.gd.
+const LIGHTING_BYTES_PER_SPLAT := 4
+const RELIGHT_FLOATS_PER_INSTANCE := 8
+const MAX_LIGHTS := 8
+const LIGHT_RIG_FLOATS := MAX_LIGHTS * 16
 
 const SHADER_PATH_PROJECTION := "res://addons/gdgs/runtime/render/compute/shaders/gsplat_projection.glsl"
 const SHADER_PATH_RADIX_UPSWEEP := "res://addons/gdgs/runtime/render/compute/shaders/radix_sort_upsweep.glsl"
@@ -35,6 +40,7 @@ class RenderState:
 	var needs_gpu_rebuild := true
 	var needs_splat_upload := false
 	var needs_instance_upload := false
+	var needs_relight_upload := false
 	var context: GdgsRenderingDeviceContext
 	var shaders: Dictionary = {}
 	var pipelines: Dictionary = {}
@@ -77,6 +83,10 @@ func mark_all_render_states_needs_instance_upload(value: bool) -> void:
 	for state in _render_states.values():
 		state.needs_instance_upload = value
 
+func mark_all_render_states_needs_relight_upload(value: bool) -> void:
+	for state in _render_states.values():
+		state.needs_relight_upload = value
+
 func rebuild_gpu_state(state, point_count: int, unique_data_size: int, instance_count: int) -> void:
 	cleanup_state(state)
 	if point_count <= 0:
@@ -101,7 +111,18 @@ func rebuild_gpu_state(state, point_count: int, unique_data_size: int, instance_
 	block_dims[0] = num_partitions
 	block_dims[3] = ceili(num_sort_elements_max / 256.0)
 
+	# Relighting buffers, sized off the same unique-splat and instance counts as
+	# the data above. Always allocated (a minimum of one element) so the shader's
+	# bindings stay valid even with nothing baked; the per-instance `enabled`
+	# flag is what actually gates the maths.
+	var unique_splat_count := maxi(1, unique_data_size / (FLOATS_PER_SPLAT * BYTES_PER_FLOAT))
 	state.descriptors["splats"] = state.context.create_storage_buffer(unique_data_size)
+	state.descriptors["splat_lighting"] = state.context.create_storage_buffer(
+		unique_splat_count * LIGHTING_BYTES_PER_SPLAT)
+	state.descriptors["light_rig"] = state.context.create_storage_buffer(
+		LIGHT_RIG_FLOATS * BYTES_PER_FLOAT)
+	state.descriptors["instance_relight"] = state.context.create_storage_buffer(
+		maxi(1, instance_count) * RELIGHT_FLOATS_PER_INSTANCE * BYTES_PER_FLOAT)
 	state.descriptors["culled_splats"] = state.context.create_storage_buffer(point_count * FLOATS_PER_CULLED_SPLAT * BYTES_PER_FLOAT)
 	state.descriptors["grid_dimensions"] = state.context.create_storage_buffer(6 * 4, block_dims.to_byte_array(), RenderingDevice.STORAGE_BUFFER_USAGE_DISPATCH_INDIRECT)
 	state.descriptors["histogram"] = state.context.create_storage_buffer(4 + (1 + 4 * RADIX + num_partitions * RADIX) * 4)
@@ -124,7 +145,12 @@ func rebuild_gpu_state(state, point_count: int, unique_data_size: int, instance_
 		state.descriptors["grid_dimensions"],
 		state.descriptors["splat_instance_ids"],
 		state.descriptors["instance_transforms"],
-		state.descriptors["uniforms"]
+		state.descriptors["uniforms"],
+		# Bindings are assigned by position in create_descriptor_set, so these
+		# three must stay last and in this order to match bindings 9/10/11.
+		state.descriptors["light_rig"],
+		state.descriptors["splat_lighting"],
+		state.descriptors["instance_relight"]
 	], state.shaders["projection"], 0)
 
 	var radix_upsweep_set: RID = state.context.create_descriptor_set([
@@ -167,6 +193,7 @@ func rebuild_gpu_state(state, point_count: int, unique_data_size: int, instance_
 	state.needs_gpu_rebuild = false
 	state.needs_splat_upload = true
 	state.needs_instance_upload = true
+	state.needs_relight_upload = true
 
 func upload_splats(state, point_data_byte: PackedByteArray, splat_instance_ids_byte: PackedByteArray) -> void:
 	if state.context == null or point_data_byte.is_empty() or splat_instance_ids_byte.is_empty():
@@ -181,6 +208,23 @@ func upload_instance_transforms(state, instance_transforms_byte: PackedByteArray
 	state.context.device.buffer_update(state.descriptors["instance_transforms"].rid, 0, instance_transforms_byte.size(), instance_transforms_byte)
 	state.needs_instance_upload = false
 
+## The baked per-splat records travel with the splat data (they change only when
+## the scene's resources do), while the light rig and per-instance knobs move on
+## their own cadence, so they upload separately.
+func upload_splat_lighting(state, splat_lighting_byte: PackedByteArray) -> void:
+	if state.context == null or splat_lighting_byte.is_empty():
+		return
+	state.context.device.buffer_update(state.descriptors["splat_lighting"].rid, 0, splat_lighting_byte.size(), splat_lighting_byte)
+
+func upload_relight(state, light_rig_byte: PackedByteArray, instance_relight_byte: PackedByteArray) -> void:
+	if state.context == null:
+		return
+	if not light_rig_byte.is_empty():
+		state.context.device.buffer_update(state.descriptors["light_rig"].rid, 0, light_rig_byte.size(), light_rig_byte)
+	if not instance_relight_byte.is_empty():
+		state.context.device.buffer_update(state.descriptors["instance_relight"].rid, 0, instance_relight_byte.size(), instance_relight_byte)
+	state.needs_relight_upload = false
+
 func cleanup_state(state) -> void:
 	if state == null:
 		return
@@ -193,6 +237,7 @@ func cleanup_state(state) -> void:
 	state.needs_gpu_rebuild = true
 	state.needs_splat_upload = true
 	state.needs_instance_upload = true
+	state.needs_relight_upload = true
 
 func cleanup_all() -> void:
 	for state in _render_states.values():

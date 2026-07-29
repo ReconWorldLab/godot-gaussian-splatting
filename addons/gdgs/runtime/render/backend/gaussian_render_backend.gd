@@ -44,6 +44,13 @@ func notify_resource_changed(_node: Node) -> void:
 func notify_transform_changed(_node: Node) -> void:
 	pass
 
+## The node's assigned lighting bake changed. Separate from
+## notify_resource_changed because it is far cheaper to honour: only the
+## relighting data is stale, not the splat buffers or data textures. Backends
+## that rebuild relight state on their own tick can leave this a no-op.
+func notify_lighting_changed(_node: Node) -> void:
+	pass
+
 ## Free all GPU/thread state owned by the backend. Best-effort; safe to call
 ## when nothing was ever attached.
 func shutdown() -> void:

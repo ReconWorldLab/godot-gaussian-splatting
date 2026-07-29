@@ -59,6 +59,13 @@ func notify_transform_changed(node: Node) -> void:
 	if manager != null and manager.has_method("mark_transform_dirty"):
 		manager.mark_transform_dirty(node)
 
+## The baked records live in the merged splat buffer, so a changed bake needs
+## the same scene re-sync a changed GaussianResource does.
+func notify_lighting_changed(node: Node) -> void:
+	var manager := _get_manager(node)
+	if manager != null and manager.has_method("mark_resource_dirty"):
+		manager.mark_resource_dirty(node)
+
 func shutdown() -> void:
 	# Best-effort: the manager also frees GPU state on its own PREDELETE, but a
 	# selector-driven shutdown should release it eagerly.

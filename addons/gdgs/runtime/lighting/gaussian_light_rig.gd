@@ -92,8 +92,9 @@ func update(context: Node) -> bool:
 	return true
 
 
-## Pushes the packed arrays onto a material. Always writes full-size arrays;
-## `light_count` bounds the shader's loop, so trailing slots are ignored.
+## Pushes the packed arrays onto a material (the Raster path). Always writes
+## full-size arrays; `light_count` bounds the shader's loop, so trailing slots
+## are ignored.
 func apply(material: ShaderMaterial) -> void:
 	if material == null:
 		return
@@ -102,6 +103,40 @@ func apply(material: ShaderMaterial) -> void:
 	material.set_shader_parameter("light_colors", colors)
 	material.set_shader_parameter("light_params", params)
 	material.set_shader_parameter("light_spot_directions", spot_directions)
+
+
+## Flat float layout for the Compute path's storage buffer: four vec4 per light
+## in the same order the Raster shader's four uniform arrays hold them, so the
+## two shaders read identical numbers. Always MAX_LIGHTS entries long.
+##
+##   [i*16 +  0..3] direction to light (directional) or world position, w unused
+##   [i*16 +  4..7] colour * energy, w = type (0 directional, 1 omni, 2 spot)
+##   [i*16 +  8..11] 1/range, decay, cos(spot angle), spot angle attenuation
+##   [i*16 + 12..15] direction the light travels (spot cone axis), w unused
+func to_packed_floats() -> PackedFloat32Array:
+	var out := PackedFloat32Array()
+	out.resize(MAX_LIGHTS * 16)
+	for index in MAX_LIGHTS:
+		var base := index * 16
+		var vector := vectors[index]
+		var tint := colors[index]
+		var setup := params[index]
+		var spot := spot_directions[index]
+		out[base + 0] = vector.x
+		out[base + 1] = vector.y
+		out[base + 2] = vector.z
+		out[base + 4] = tint.r
+		out[base + 5] = tint.g
+		out[base + 6] = tint.b
+		out[base + 7] = tint.a
+		out[base + 8] = setup.r
+		out[base + 9] = setup.g
+		out[base + 10] = setup.b
+		out[base + 11] = setup.a
+		out[base + 12] = spot.x
+		out[base + 13] = spot.y
+		out[base + 14] = spot.z
+	return out
 
 
 func _pack(

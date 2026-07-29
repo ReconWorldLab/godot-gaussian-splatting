@@ -86,7 +86,34 @@ layout (std140, set = 0, binding = 8) restrict uniform Uniforms {
 	float time;
 	ivec2 dims; // Texture size
 	int point_count;
-	int _uniform_pad0;
+	int light_count; // relighting; 0 disables the loop entirely
+};
+
+// --- relighting (see CLAUDE.md, phase R4) ------------------------------------
+// The maths below is a deliberate re-expression of the Raster backend's spatial
+// shader (render/raster/materials/gaussian_raster.gdshader). The two MUST stay
+// in parity; keep this comment in both when either changes. Both evaluate
+// lighting once per splat and multiply the SH colour in sRGB space, before any
+// linear conversion, so the two backends stay numerically comparable.
+
+// Four vec4 per light, packed by runtime/lighting/gaussian_light_rig.gd:
+//   +0 direction to light (directional) or world position
+//   +1 colour * energy, w = type (0 directional, 1 omni, 2 spot)
+//   +2 1/range, decay, cos(spot angle), spot angle attenuation
+//   +3 direction the light travels (spot cone axis)
+layout (std430, set = 0, binding = 9) restrict readonly buffer LightRigBuffer {
+	vec4 light_rig[];
+};
+
+// One baked record per unique splat, RGBA8 packed into a uint: octahedral
+// normal in bytes 0-1, ambient occlusion in 2, confidence in 3.
+layout (std430, set = 0, binding = 10) restrict readonly buffer SplatLightingBuffer {
+	uint splat_lighting[];
+};
+
+// Two vec4 per instance: (unlit level, gain, DC-only, enabled), (ambient rgb, _).
+layout (std430, set = 0, binding = 11) restrict readonly buffer InstanceRelightBuffer {
+	vec4 instance_relight[];
 };
 
 layout(push_constant) restrict readonly uniform PushConstants {
@@ -128,6 +155,85 @@ vec3 get_color(in vec3 view_dir, in float sh_coefficients[16*3]) {
 		- SH_COEFFICIENTS(13) * SH_C3_4 * x * (4.0*zz - xx - yy)
 		+ SH_COEFFICIENTS(14) * SH_C3_5 * z * (xx - yy)
 		- SH_COEFFICIENTS(15) * SH_C3_6 * x * (xx - 3.0*yy));
+}
+
+/** Unpacks one RGBA8 lighting record. Byte 0 lands in the low bits. */
+vec4 unpack_lighting(in uint packed_record) {
+	return vec4(
+		float( packed_record        & 0xFFu),
+		float((packed_record >>  8) & 0xFFu),
+		float((packed_record >> 16) & 0xFFu),
+		float((packed_record >> 24) & 0xFFu)) / 255.0;
+}
+
+/** Octahedral unit-vector decode; parity with oct_decode() in the raster shader
+    and in runtime/resources/gaussian_lighting_resource.gd, which wrote these
+    bytes. sign() is avoided because it returns 0 at 0 and collapses a fold. */
+vec3 oct_decode(in vec2 e) {
+	vec3 v = vec3(e, 1.0 - abs(e.x) - abs(e.y));
+	if (v.z < 0.0) {
+		v.xy = (1.0 - abs(e.yx)) * vec2(e.x >= 0.0 ? 1.0 : -1.0, e.y >= 0.0 ? 1.0 : -1.0);
+	}
+	float len = length(v);
+	return len > 0.0 ? v / len : vec3(0.0, 0.0, 1.0);
+}
+
+/** Godot's own omni/spot distance falloff, so a light reads the same on splats
+    as on the mesh beside them. Parity with the raster shader. */
+float omni_attenuation(in float dist, in float inv_range, in float decay) {
+	float nd = dist * inv_range;
+	nd *= nd;
+	nd *= nd;
+	nd = max(1.0 - nd, 0.0);
+	nd *= nd;
+	return nd * pow(max(dist, 0.0001), -decay);
+}
+
+/** Per-splat lighting multiplier. Parity with relight_factor() in the raster
+    shader; `confidence` gates only the directional response so floaters and
+    interior splats fade to flat ambient instead of picking up a bogus
+    terminator. */
+vec3 relight_factor(
+	in uint splat_index,
+	in vec3 world_position,
+	in mat3 object_linear,
+	in float unlit_level,
+	in float gain,
+	in vec3 ambient
+) {
+	vec4 record = unpack_lighting(splat_lighting[splat_index]);
+	vec3 world_normal = object_linear * oct_decode(record.rg * 2.0 - 1.0);
+	float normal_length = length(world_normal);
+	world_normal = normal_length > 0.0 ? world_normal / normal_length : vec3(0.0, 0.0, 1.0);
+	float ao = record.b;
+	float confidence = record.a;
+
+	vec3 direct = vec3(0.0);
+	for (int i = 0; i < light_count; i++) {
+		vec4 tint = light_rig[i * 4 + 1];
+		vec4 setup = light_rig[i * 4 + 2];
+		int type = int(tint.a + 0.5);
+		vec3 to_light = light_rig[i * 4 + 0].xyz;
+		float attenuation = 1.0;
+		if (type != 0) {
+			vec3 relative = light_rig[i * 4 + 0].xyz - world_position;
+			float dist = length(relative);
+			if (dist < 1e-6) {
+				continue;
+			}
+			to_light = relative / dist;
+			attenuation = omni_attenuation(dist, setup.r, setup.g);
+			if (type == 2) {
+				float cone_cosine = max(dot(-to_light, light_rig[i * 4 + 3].xyz), setup.b);
+				float rim = (1.0 - cone_cosine) / max(1e-4, 1.0 - setup.b);
+				attenuation *= 1.0 - pow(clamp(rim, 0.0, 1.0), setup.a);
+			}
+		}
+		direct += tint.rgb * attenuation * max(dot(world_normal, to_light), 0.0);
+	}
+
+	vec3 irradiance = ambient * ao + direct * confidence;
+	return vec3(unlit_level) + gain * irradiance;
 }
 
 /** Computes a 2D projected covariance matrix from the given Gaussian parameters. */
@@ -221,10 +327,25 @@ void main() {
 	uint sort_buffer_offset = buffer_size;
 	vec3 view_dir = normalize(world_pos.xyz - camera_pos);
 
+	vec3 base_color = get_color(view_dir, splat.sh_coefficients);
+	vec4 relight = instance_relight[instance_id * 2u];
+	if (relight.w > 0.5) {
+		if (relight.z > 0.5) {
+			// DC-only: baked view-dependent specular fights new lighting.
+			base_color = max(vec3(0.0), vec3(0.5) + vec3(
+				splat.sh_coefficients[0], splat.sh_coefficients[1], splat.sh_coefficients[2]
+			) * SH_C0);
+		}
+		base_color *= relight_factor(
+			unique_splat_index, world_pos.xyz, object_linear,
+			relight.x, relight.y, instance_relight[instance_id * 2u + 1u].rgb
+		);
+	}
+
 	RasterizeData data;
 	data.image_pos = image_pos;
 	data.conic = vec3(covariance.z, -covariance.y, covariance.x) / det; // Inverse 2D covariance
-	data.color = vec4(get_color(view_dir, splat.sh_coefficients), splat_opacity);
+	data.color = vec4(base_color, splat_opacity);
 	data.pos_xy = world_pos.xy;
 	data.pos_z = world_pos.z;
 	data.depth_data = vec4(-view_pos.z, 0.0, 0.0, 0.0);

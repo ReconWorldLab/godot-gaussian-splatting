@@ -38,13 +38,18 @@ func render_for_compositor(
 
 	if state.needs_splat_upload:
 		state_cache.upload_splats(state, scene_registry.get_point_data_byte(), scene_registry.get_splat_instance_ids_byte())
+		state_cache.upload_splat_lighting(state, scene_registry.get_splat_lighting_byte())
 	if state.needs_instance_upload:
 		state_cache.upload_instance_transforms(state, scene_registry.get_instance_transforms_byte())
+	if state.needs_relight_upload:
+		state_cache.upload_relight(
+			state, scene_registry.get_light_rig_byte(), scene_registry.get_instance_relight_byte()
+		)
 
 	if state.camera_push_constants.is_empty():
 		return {}
 
-	_rasterize_state(state, point_count)
+	_rasterize_state(state, point_count, scene_registry.get_light_count())
 	if state.descriptors.has("render_texture") and state.descriptors.has("depth_texture"):
 		return {
 			"color_alpha_texture": state.descriptors["render_texture"].rid,
@@ -52,7 +57,7 @@ func render_for_compositor(
 		}
 	return {}
 
-func _rasterize_state(state, point_count: int) -> void:
+func _rasterize_state(state, point_count: int, light_count: int) -> void:
 	if state.context == null:
 		return
 
@@ -64,7 +69,9 @@ func _rasterize_state(state, point_count: int) -> void:
 		state.texture_size.x,
 		state.texture_size.y,
 		point_count,
-		0
+		# The trailing slot used to be padding; it now carries the active light
+		# count, which is what bounds the projection shader's relight loop.
+		light_count
 	])
 	state.context.device.buffer_update(state.descriptors["uniforms"].rid, 0, 8 * 4, uniforms)
 	state.context.device.buffer_clear(state.descriptors["histogram"].rid, 0, 4 + 4 * RADIX * 4)

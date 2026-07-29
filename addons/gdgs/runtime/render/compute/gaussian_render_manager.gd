@@ -5,12 +5,17 @@ class_name GaussianRenderManager
 const SceneRegistryScript := preload("res://addons/gdgs/runtime/render/compute/gaussian_scene_registry.gd")
 const GpuStateCacheScript := preload("res://addons/gdgs/runtime/render/compute/gaussian_gpu_state_cache.gd")
 const RendererScript := preload("res://addons/gdgs/runtime/render/compute/gaussian_renderer.gd")
+# Guarded load, not preload: runtime/lighting/ is deletable and losing it must
+# only cost relighting, leaving splats rendering unlit.
+const LIGHT_RIG_PATH := "res://addons/gdgs/runtime/lighting/gaussian_light_rig.gd"
 
 static var _instance
 
 var _scene_registry: GaussianSceneRegistry = SceneRegistryScript.new()
 var _gpu_state_cache: GaussianGpuStateCache = GpuStateCacheScript.new()
 var _renderer: GaussianRenderer = RendererScript.new()
+var _light_rig: RefCounted = null
+var _light_rig_checked := false
 
 static func get_instance():
 	if _instance != null and is_instance_valid(_instance):
@@ -19,6 +24,33 @@ static func get_instance():
 
 func _enter_tree() -> void:
 	_instance = self
+
+## Main-thread tick. render_for_compositor() runs on the rendering thread, where
+## walking the scene tree and reading node transforms would be unsafe, so every
+## piece of relight state is gathered here and parked in the registry as bytes
+## for the renderer to upload.
+func _process(_delta: float) -> void:
+	var rig := _resolve_light_rig()
+	if rig == null:
+		return
+	rig.update(self)
+	if _scene_registry.refresh_relight(rig.to_packed_floats().to_byte_array(), rig.light_count):
+		_gpu_state_cache.mark_all_render_states_needs_relight_upload(true)
+
+func _resolve_light_rig() -> RefCounted:
+	if _light_rig_checked:
+		return _light_rig
+	_light_rig_checked = true
+	if not ResourceLoader.exists(LIGHT_RIG_PATH, "Script"):
+		return null
+	var script: Variant = load(LIGHT_RIG_PATH)
+	if script == null or not (script is GDScript) or not (script as GDScript).can_instantiate():
+		push_warning("[gdgs] compute: light rig failed to load; splats render unlit")
+		return null
+	var instance: Variant = (script as GDScript).new()
+	if instance is RefCounted:
+		_light_rig = instance
+	return _light_rig
 
 func _exit_tree() -> void:
 	if _instance == self:

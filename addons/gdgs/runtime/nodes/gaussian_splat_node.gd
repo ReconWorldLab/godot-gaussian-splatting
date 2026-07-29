@@ -95,6 +95,11 @@ func _set_lighting(value: GaussianLightingResource) -> void:
 		return
 	_lighting = value
 	_sync_lighting_proxy()
+	# Backends that cache the bake (Compute uploads it into a storage buffer at
+	# registration time) will otherwise keep rendering the state this node had
+	# when it entered the tree — which is `null` for the common order of adding
+	# the node first and assigning the resource afterwards.
+	_mark_backend_lighting_dirty()
 
 func _set_relight_cast_shadows(value: bool) -> void:
 	if _relight_cast_shadows == value:
@@ -179,6 +184,13 @@ func _mark_backend_transform_dirty() -> void:
 	var backend := SELECTOR_SCRIPT.get_backend(self)
 	if backend != null:
 		backend.notify_transform_changed(self)
+
+func _mark_backend_lighting_dirty() -> void:
+	if not is_inside_tree():
+		return
+	var backend := SELECTOR_SCRIPT.get_backend(self)
+	if backend != null and backend.has_method("notify_lighting_changed"):
+		backend.notify_lighting_changed(self)
 
 func _notification(what: int) -> void:
 	if (what == NOTIFICATION_TRANSFORM_CHANGED
