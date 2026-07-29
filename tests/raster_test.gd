@@ -21,6 +21,7 @@ func _initialize() -> void:
 	_test_sh_fp16_roundtrip()
 	_test_default_build_preserves_tiny_covariance()
 	_test_order_dims()
+	_test_lighting_image_roundtrip()
 
 	if _failures.is_empty():
 		print("raster tests passed")
@@ -206,6 +207,40 @@ func _test_order_dims() -> void:
 		var dims := DataTextures.order_dimensions(count)
 		_check(dims.x >= 1 and dims.y >= 1, "order dims invalid for %d" % count)
 		_check(dims.x * dims.y >= count, "order dims too small for %d: %s" % [count, str(dims)])
+
+## The lighting texture is a pure reshape: the baked 4-byte records are already
+## in texel order, so every splat's bytes must survive unchanged. RGBA8 is used
+## on purpose and the shader uniform must not be `source_color`, or an sRGB
+## decode would skew every normal.
+func _test_lighting_image_roundtrip() -> void:
+	var count := 733   # deliberately not a square, to exercise row padding
+	var data := PackedByteArray()
+	data.resize(count * DataTextures.LIGHTING_BYTES_PER_TEXEL)
+	for i in range(data.size()):
+		data[i] = (i * 37 + 11) % 256
+	var built: Dictionary = DataTextures.build_lighting_image(data, count)
+	_check(bool(built.get("ok", false)), "lighting image build failed: %s" % str(built.get("reason", "")))
+	if not bool(built.get("ok", false)):
+		return
+	var image: Image = built["lighting_image"]
+	var width := int(built["lighting_width"])
+	_check(image.get_format() == Image.FORMAT_RGBA8, "lighting image is not RGBA8")
+	_check(image.get_width() * image.get_height() >= count, "lighting image is too small")
+	for splat: int in [0, 1, 366, count - 1]:
+		var pixel := image.get_pixel(splat % width, splat / width)
+		var base: int = splat * DataTextures.LIGHTING_BYTES_PER_TEXEL
+		var expected := [data[base], data[base + 1], data[base + 2], data[base + 3]]
+		var actual := [
+			int(round(pixel.r * 255.0)), int(round(pixel.g * 255.0)),
+			int(round(pixel.b * 255.0)), int(round(pixel.a * 255.0)),
+		]
+		_check(actual == expected, "lighting texel %d is %s, expected %s" % [splat, actual, expected])
+	# A size mismatch means a stale bake and must be refused, not rendered.
+	var short_data := data.slice(0, data.size() - 4)
+	_check(
+		not bool(DataTextures.build_lighting_image(short_data, count).get("ok", false)),
+		"build_lighting_image accepted a mismatched splat count"
+	)
 
 func _make_resource(count: int) -> Resource:
 	var floats := PackedFloat32Array()

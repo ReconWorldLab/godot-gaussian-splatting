@@ -40,6 +40,12 @@ const SPLIT_CHUNK_ROWS := 16384     # strip height for the bulk reshape
 # splat ceiling, so no packing is needed here.
 const ORDER_BYTES_PER_TEXEL := 4
 
+# Lighting texture: one RGBA8 texel per splat, byte-identical to the baked
+# GaussianLightingResource record (oct normal XY, AO, confidence). No repacking
+# is needed — the blob is already in texel order — so this is a pure reshape.
+const LIGHTING_TEXELS_PER_SPLAT := 1
+const LIGHTING_BYTES_PER_TEXEL := 4
+
 ## Returns {ok, core_texture, core_width, sh_texture, sh_width} or
 ## {ok=false, reason}.
 static func build(resource, sh_half: bool = true) -> Dictionary:
@@ -112,6 +118,46 @@ static func build_images(resource, sh_half: bool = true) -> Dictionary:
 		"sh_image": sh["image"],
 		"sh_width": int(sh["width"]),
 	}
+
+# --- lighting texture (baked per-splat surface record) ---
+
+## Wraps a baked lighting blob as an RGBA8 texture, one texel per splat.
+## Returns {ok, lighting_texture, lighting_width} or {ok=false, reason}.
+##
+## The uniform must NOT be declared `source_color` in the shader: these are
+## data bytes, and an sRGB decode would skew every normal and occlusion value.
+static func build_lighting(splat_data: PackedByteArray, count: int) -> Dictionary:
+	var built := build_lighting_image(splat_data, count)
+	if not bool(built.get("ok", false)):
+		return built
+	var texture := ImageTexture.create_from_image(built["lighting_image"])
+	if texture == null:
+		return {"ok": false, "reason": "ImageTexture.create_from_image failed"}
+	return {
+		"ok": true,
+		"lighting_texture": texture,
+		"lighting_width": int(built["lighting_width"]),
+	}
+
+
+## CPU-only half of build_lighting(), so the packing can be unit-tested
+## headless. Returns {ok, lighting_image, lighting_width} or {ok=false, reason}.
+static func build_lighting_image(splat_data: PackedByteArray, count: int) -> Dictionary:
+	if count <= 0:
+		return {"ok": false, "reason": "empty resource"}
+	var expected := count * LIGHTING_BYTES_PER_TEXEL
+	if splat_data.size() != expected:
+		return {"ok": false, "reason": "lighting data size %d != expected %d" % [splat_data.size(), expected]}
+	var packed := _stream_to_image(splat_data, count * LIGHTING_TEXELS_PER_SPLAT,
+		LIGHTING_TEXELS_PER_SPLAT, Image.FORMAT_RGBA8, LIGHTING_BYTES_PER_TEXEL)
+	if not bool(packed.get("ok", false)):
+		return packed
+	return {
+		"ok": true,
+		"lighting_image": packed["image"],
+		"lighting_width": int(packed["width"]),
+	}
+
 
 # --- order texture (sorted splat indices) ---
 

@@ -12,6 +12,8 @@ const VoxelGrid := preload("res://addons/gdgs/collision/pipeline/voxel_grid.gd")
 const NormalField := preload("res://addons/gdgs/lighting/bake/normal_field.gd")
 const SplatTransfer := preload("res://addons/gdgs/lighting/bake/splat_transfer.gd")
 const ProxyBuilder := preload("res://addons/gdgs/lighting/bake/proxy_builder.gd")
+const LightRig := preload("res://addons/gdgs/runtime/lighting/gaussian_light_rig.gd")
+const RASTER_SHADER_PATH := "res://addons/gdgs/runtime/render/raster/materials/gaussian_raster.gdshader"
 
 # A 32³ grid at 0.1 m voxels whose lower half in Y is solid, so the surface is
 # the plane y = 16 and the outward normal is +Y everywhere on it.
@@ -33,6 +35,17 @@ func _initialize() -> void:
 	_test_ao_darkens_a_concave_corner()
 	_test_vertex_normals_point_outward()
 	_test_resource_validation()
+	_test_raster_shader_declares_relight_uniforms()
+
+
+# The light rig reads Node3D.get_global_transform(), which only works once a
+# node is genuinely inside the tree — during _initialize() a freshly parented
+# node still reports otherwise and every transform comes back as identity. So
+# the rig tests run on the first frame, which is also how the rig runs for real.
+func _process(_delta: float) -> bool:
+	_test_light_rig_packs_each_light_type()
+	_test_light_rig_only_bumps_version_on_change()
+	_test_light_rig_skips_hidden_and_dark_lights()
 
 	if _failures.is_empty():
 		print("lighting tests passed")
@@ -41,6 +54,7 @@ func _initialize() -> void:
 		for failure in _failures:
 			push_error("lighting test: %s" % failure)
 		quit(1)
+	return true
 
 
 # --- codec ------------------------------------------------------------------
@@ -254,6 +268,150 @@ func _test_resource_validation() -> void:
 	var record: Dictionary = resource.read_splat(99)
 	if float(record["confidence"]) != 0.0:
 		_fail("out-of-range read did not fall back to zero confidence")
+
+
+# --- light rig ---------------------------------------------------------------
+
+
+func _test_light_rig_packs_each_light_type() -> void:
+	var host := Node3D.new()
+	root.add_child(host)
+
+	var directional := DirectionalLight3D.new()
+	# Godot lights aim down local -Z, so an unrotated light's direction *to* the
+	# light is +Z.
+	directional.light_color = Color(1.0, 0.5, 0.25)
+	directional.light_energy = 2.0
+	host.add_child(directional)
+
+	var omni := OmniLight3D.new()
+	omni.position = Vector3(3.0, 4.0, 5.0)
+	omni.omni_range = 8.0
+	omni.omni_attenuation = 1.5
+	host.add_child(omni)
+
+	var spot := SpotLight3D.new()
+	spot.position = Vector3(-2.0, 1.0, 0.0)
+	spot.spot_range = 6.0
+	spot.spot_angle = 30.0
+	spot.spot_angle_attenuation = 2.0
+	host.add_child(spot)
+
+	var rig: RefCounted = LightRig.new()
+	rig.update(host)
+	if rig.light_count != 3:
+		_fail("rig packed %d lights, expected 3" % rig.light_count)
+		host.free()
+		return
+	# Directional lights are packed first because they always reach everything.
+	if not rig.vectors[0].is_equal_approx(Vector3(0.0, 0.0, 1.0)):
+		_fail("directional to-light vector is %s, expected +Z" % rig.vectors[0])
+	var tint: Color = rig.colors[0]
+	if not Vector3(tint.r, tint.g, tint.b).is_equal_approx(Vector3(2.0, 1.0, 0.5)):
+		_fail("directional colour*energy is %s, expected (2, 1, 0.5)" % tint)
+	if int(tint.a) != 0:
+		_fail("directional type tag is %d, expected 0" % int(tint.a))
+
+	var omni_index := _find_type(rig, 1)
+	var spot_index := _find_type(rig, 2)
+	if omni_index < 0 or spot_index < 0:
+		_fail("rig did not tag an omni and a spot light")
+		host.free()
+		return
+	if not rig.vectors[omni_index].is_equal_approx(Vector3(3.0, 4.0, 5.0)):
+		_fail("omni position is %s, expected its world origin" % rig.vectors[omni_index])
+	var omni_params: Color = rig.params[omni_index]
+	if absf(omni_params.r - 1.0 / 8.0) > 1e-5:
+		_fail("omni inverse range is %f, expected 0.125" % omni_params.r)
+	if absf(omni_params.g - 1.5) > 1e-5:
+		_fail("omni decay is %f, expected 1.5" % omni_params.g)
+	var spot_params: Color = rig.params[spot_index]
+	if absf(spot_params.b - cos(deg_to_rad(30.0))) > 1e-5:
+		_fail("spot cone cosine is %f, expected cos(30°)" % spot_params.b)
+	if absf(spot_params.a - 2.0) > 1e-5:
+		_fail("spot angle attenuation is %f, expected 2" % spot_params.a)
+	if not rig.spot_directions[spot_index].is_equal_approx(Vector3(0.0, 0.0, -1.0)):
+		_fail("spot travel direction is %s, expected -Z" % rig.spot_directions[spot_index])
+	# Full-size arrays are always uploaded; light_count bounds the shader loop.
+	if rig.vectors.size() != LightRig.MAX_LIGHTS or rig.colors.size() != LightRig.MAX_LIGHTS:
+		_fail("rig arrays must always be MAX_LIGHTS long")
+	host.free()
+
+
+func _test_light_rig_only_bumps_version_on_change() -> void:
+	var host := Node3D.new()
+	root.add_child(host)
+	var light := OmniLight3D.new()
+	light.position = Vector3(1.0, 2.0, 3.0)
+	host.add_child(light)
+
+	var rig: RefCounted = LightRig.new()
+	rig.update(host)
+	var settled: int = rig.version
+	# "Nothing recomputes while nothing moves" is the whole dirty-flag contract.
+	for _tick in 5:
+		if rig.update(host):
+			_fail("rig reported a change while every light stayed put")
+			break
+	if rig.version != settled:
+		_fail("rig version moved from %d to %d with no change" % [settled, rig.version])
+
+	light.position = Vector3(9.0, 2.0, 3.0)
+	if not rig.update(host):
+		_fail("rig did not report a change after a light moved")
+	if rig.version != settled + 1:
+		_fail("rig version is %d after one change, expected %d" % [rig.version, settled + 1])
+	host.free()
+
+
+func _test_light_rig_skips_hidden_and_dark_lights() -> void:
+	var host := Node3D.new()
+	root.add_child(host)
+	var hidden := OmniLight3D.new()
+	hidden.visible = false
+	host.add_child(hidden)
+	var dark := OmniLight3D.new()
+	dark.light_energy = 0.0
+	host.add_child(dark)
+	var live := OmniLight3D.new()
+	host.add_child(live)
+
+	var rig: RefCounted = LightRig.new()
+	rig.update(host)
+	if rig.light_count != 1:
+		_fail("rig packed %d lights, expected only the visible non-zero one" % rig.light_count)
+	host.free()
+
+
+func _test_raster_shader_declares_relight_uniforms() -> void:
+	# Godot parses shader code on load even headless, so this catches a syntax
+	# error or a renamed uniform without needing a window.
+	var shader: Shader = load(RASTER_SHADER_PATH)
+	if shader == null:
+		_fail("the raster shader failed to load")
+		return
+	var uniforms: Array = shader.get_shader_uniform_list()
+	if uniforms.is_empty():
+		print("lighting test: shader uniform list unavailable in this environment; skipped")
+		return
+	var names: Dictionary = {}
+	for entry: Dictionary in uniforms:
+		names[String(entry.get("name", ""))] = true
+	for required: String in [
+		"splat_lighting", "lighting_width", "relight_enabled", "relight_unlit_level",
+		"relight_light_gain", "relight_ambient", "relight_dc_only",
+		"light_count", "light_vectors", "light_colors", "light_params",
+		"light_spot_directions",
+	]:
+		if not names.has(required):
+			_fail("the raster shader does not declare uniform '%s'" % required)
+
+
+func _find_type(rig: RefCounted, type: int) -> int:
+	for index in rig.light_count:
+		if int((rig.colors[index] as Color).a) == type:
+			return index
+	return -1
 
 
 # --- helpers ----------------------------------------------------------------

@@ -43,6 +43,37 @@ uniform bool aa_compensation = false;
 // pixels (reduces distant shimmer). 0 disables it.
 uniform float min_pixel_size = 0.0;
 
+// --- relighting (see CLAUDE.md, phase R2) -----------------------------------
+// Baked per-splat surface record (RGBA8, 1 texel per splat): octahedral outward
+// normal in RG, ambient occlusion in B, confidence in A. Deliberately NOT
+// declared `source_color`: these are data bytes, and an sRGB decode would skew
+// every normal and occlusion value.
+uniform sampler2D splat_lighting : filter_nearest, repeat_disable;
+uniform int lighting_width = 1;
+uniform bool relight_enabled = false;
+// Floor the colour is scaled to where no light reaches — the "darken
+// everything, let only lit regions climb back" knob.
+uniform float relight_unlit_level = 0.25;
+uniform float relight_light_gain = 1.0;
+// Ambient term, modulated by baked AO. Not `source_color`: the multiply happens
+// in the same sRGB space the SH colours live in (see the note in fragment()).
+uniform vec4 relight_ambient = vec4(0.25, 0.25, 0.25, 1.0);
+// Use only the SH DC term as the base colour. Baked view-dependent specular
+// fights new lighting; DC-only is the closest thing this data has to an albedo.
+uniform bool relight_dc_only = false;
+
+// Light rig, packed by runtime/lighting/gaussian_light_rig.gd in WORLD space.
+// The array size must match its MAX_LIGHTS.
+uniform int light_count = 0;
+// Directional: unit direction *to* the light. Omni/spot: world position.
+uniform vec3 light_vectors[8];
+// rgb = colour * energy, a = type (0 directional, 1 omni, 2 spot).
+uniform vec4 light_colors[8];
+// r = 1/range, g = decay, b = cos(spot angle), a = spot angle attenuation.
+uniform vec4 light_params[8];
+// Direction the light travels (spot cone axis).
+uniform vec3 light_spot_directions[8];
+
 const float SH_C0 = 0.28209479177387814;
 const float SH_C1 = 0.4886025119029199;
 const float SH_C2_0 = 1.0925484305920792;
@@ -92,6 +123,80 @@ vec4 fetch_sh(int texel) {
 	int x = texel % sh_width;
 	int y = texel / sh_width;
 	return texelFetch(splat_sh, ivec2(x, y), 0);
+}
+
+vec4 fetch_lighting(int texel) {
+	int x = texel % lighting_width;
+	int y = texel / lighting_width;
+	return texelFetch(splat_lighting, ivec2(x, y), 0);
+}
+
+// Octahedral unit-vector decode. Parity with oct_decode() in
+// runtime/resources/gaussian_lighting_resource.gd, which is what wrote these
+// bytes; sign() is avoided because it returns 0 at 0 and would collapse a fold.
+vec3 oct_decode(vec2 e) {
+	vec3 v = vec3(e, 1.0 - abs(e.x) - abs(e.y));
+	if (v.z < 0.0) {
+		v.xy = (1.0 - abs(e.yx)) * vec2(e.x >= 0.0 ? 1.0 : -1.0, e.y >= 0.0 ? 1.0 : -1.0);
+	}
+	float len = length(v);
+	return len > 0.0 ? v / len : vec3(0.0, 0.0, 1.0);
+}
+
+// Godot's own omni/spot distance falloff (get_omni_attenuation in
+// scene_forward_lights_inc.glsl), reproduced so a light reads the same on
+// splats as on the mesh beside them. Keep in parity with the comment in
+// gaussian_light_rig.gd.
+float omni_attenuation(float distance, float inv_range, float decay) {
+	float nd = distance * inv_range;
+	nd *= nd;
+	nd *= nd;
+	nd = max(1.0 - nd, 0.0);
+	nd *= nd;
+	return nd * pow(max(distance, 0.0001), -decay);
+}
+
+// Per-splat lighting multiplier. Evaluated once per splat in vertex() rather
+// than per fragment: a splat cloud has 10-50x overdraw, so per-fragment
+// lighting would run the whole loop that many times per pixel.
+vec3 relight_factor(int sidx, vec3 world_position, mat3 object_linear) {
+	vec4 packed = fetch_lighting(sidx);
+	vec3 local_normal = oct_decode(packed.rg * 2.0 - 1.0);
+	vec3 world_normal = object_linear * local_normal;
+	float normal_length = length(world_normal);
+	world_normal = normal_length > 0.0 ? world_normal / normal_length : vec3(0.0, 0.0, 1.0);
+	float ao = packed.b;
+	// Confidence gates the directional response only: it is ~0 for floaters and
+	// deep-interior splats, where the baked normal means nothing, so those fade
+	// to flat ambient instead of picking up a bogus terminator.
+	float confidence = packed.a;
+
+	vec3 direct = vec3(0.0);
+	for (int i = 0; i < light_count; i++) {
+		vec4 tint = light_colors[i];
+		vec4 setup = light_params[i];
+		int type = int(tint.a + 0.5);
+		vec3 to_light = light_vectors[i];
+		float attenuation = 1.0;
+		if (type != 0) {
+			vec3 relative = light_vectors[i] - world_position;
+			float distance = length(relative);
+			if (distance < 1e-6) {
+				continue;
+			}
+			to_light = relative / distance;
+			attenuation = omni_attenuation(distance, setup.r, setup.g);
+			if (type == 2) {
+				float cone_cosine = max(dot(-to_light, light_spot_directions[i]), setup.b);
+				float rim = (1.0 - cone_cosine) / max(1e-4, 1.0 - setup.b);
+				attenuation *= 1.0 - pow(clamp(rim, 0.0, 1.0), setup.a);
+			}
+		}
+		direct += tint.rgb * attenuation * max(dot(world_normal, to_light), 0.0);
+	}
+
+	vec3 irradiance = relight_ambient.rgb * ao + direct * confidence;
+	return vec3(relight_unlit_level) + relight_light_gain * irradiance;
 }
 
 // Degree-3 spherical-harmonics colour for a view direction. `c` holds the 48
@@ -249,7 +354,17 @@ void vertex() {
 				if (aa_compensation) {
 					eff_opacity *= sqrt(clamp(det_raw / det, 0.0, 1.0));
 				}
-				v_color = vec4(eval_sh(view_dir, c), eff_opacity);
+				vec3 base_color = eval_sh(view_dir, c);
+				if (relight_enabled) {
+					if (relight_dc_only) {
+						base_color = max(vec3(0.0), vec3(0.5) + vec3(c[0], c[1], c[2]) * SH_C0);
+					}
+					// Applied here, in the sRGB space the SH colours live in and
+					// BEFORE fragment()'s srgb_to_linear, so both backends modulate in
+					// the same space and stay comparable on the A/B harness.
+					base_color *= relight_factor(sidx, world_pos.xyz, object_linear);
+				}
+				v_color = vec4(base_color, eff_opacity);
 				} // sub-pixel discard guard
 			}
 		}

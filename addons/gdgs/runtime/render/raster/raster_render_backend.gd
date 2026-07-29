@@ -28,6 +28,9 @@ const SPLATS_PER_INSTANCE := 128
 const DRIVER_NODE_NAME := "_GdgsRasterDriver"
 # Re-sort when the local view direction rotates past ~1 degree (cos threshold).
 const RESORT_DOT_THRESHOLD := 0.99985
+# Guarded load, not preload: runtime/lighting/ is deletable and losing it must
+# only cost relighting, leaving splats rendering unlit.
+const LIGHT_RIG_PATH := "res://addons/gdgs/runtime/lighting/gaussian_light_rig.gd"
 
 class Entry:
 	extends RefCounted
@@ -43,10 +46,20 @@ class Entry:
 	var order_live := false
 	var last_dir_local := Vector3.ZERO
 	var has_kicked := false
+	# Relighting: the baked resource the lighting texture was built from, the
+	# knob values already pushed to the material, and the rig version already
+	# uploaded. All compared per frame so nothing re-uploads while nothing moves.
+	var lighting_resource: Resource = null
+	var lighting_texture: Texture2D = null
+	var lighting_checked := false
+	var applied_knobs: Array = []
+	var applied_rig_version := -1
 
 var _base_mesh: ArrayMesh = null
 var _driver: Node = null
 var _entries: Dictionary = {}   # node instance id -> Entry
+var _light_rig: RefCounted = null
+var _light_rig_checked := false
 
 func get_display_name() -> String:
 	return "Raster"
@@ -99,10 +112,104 @@ func shutdown() -> void:
 	_driver = null
 	_base_mesh = null
 
-## Called every frame by the driver node.
+## Called every frame by the driver node: polls sorts and refreshes relighting.
 func drive_sorts() -> void:
+	var rig := _resolve_light_rig()
+	var rig_changed := false
+	if rig != null:
+		rig_changed = rig.update(_any_attached_node())
 	for entry in _entries.values():
 		_drive_entry(entry)
+		_drive_lighting(entry, rig, rig_changed)
+
+## Relighting state is pulled from the node every frame rather than pushed
+## through a new backend-interface event: the knobs are a handful of Variant
+## reads, and polling picks up inspector edits, script writes and animation
+## alike without widening the interface Compute also has to implement.
+func _drive_lighting(entry: Entry, rig: RefCounted, rig_changed: bool) -> void:
+	if entry.material == null or entry.mmi == null or not is_instance_valid(entry.mmi):
+		return
+	var node := entry.mmi.get_parent()
+	if node == null or not is_instance_valid(node):
+		return
+
+	var lighting: Variant = node.get("lighting")
+	var resource: Resource = lighting if lighting is Resource else null
+	if resource != entry.lighting_resource or not entry.lighting_checked:
+		_rebuild_lighting_texture(entry, resource)
+
+	var enabled := bool(node.get("relight_enabled")) and entry.lighting_texture != null
+	var knobs: Array = [
+		enabled,
+		float(node.get("relight_unlit_level")),
+		float(node.get("relight_light_gain")),
+		node.get("relight_ambient"),
+		bool(node.get("relight_dc_only")),
+	]
+	if knobs != entry.applied_knobs:
+		entry.applied_knobs = knobs
+		entry.material.set_shader_parameter("relight_enabled", knobs[0])
+		entry.material.set_shader_parameter("relight_unlit_level", knobs[1])
+		entry.material.set_shader_parameter("relight_light_gain", knobs[2])
+		entry.material.set_shader_parameter("relight_ambient", knobs[3])
+		entry.material.set_shader_parameter("relight_dc_only", knobs[4])
+
+	if rig != null and enabled and (rig_changed or entry.applied_rig_version != rig.version):
+		entry.applied_rig_version = rig.version
+		rig.apply(entry.material)
+
+## Builds (or drops) the per-splat lighting texture for the node's currently
+## assigned bake. A resource whose splat count disagrees with the Gaussian is a
+## stale bake and is refused rather than rendered with mismatched records.
+func _rebuild_lighting_texture(entry: Entry, resource: Resource) -> void:
+	entry.lighting_resource = resource
+	entry.lighting_checked = true
+	entry.lighting_texture = null
+	entry.applied_knobs = []
+	entry.applied_rig_version = -1
+	entry.material.set_shader_parameter("relight_enabled", false)
+	if resource == null or not is_instance_valid(resource):
+		return
+	if not resource.has_method("is_splat_data_valid") or not bool(resource.call("is_splat_data_valid")):
+		push_warning("[gdgs] raster: lighting resource has no usable per-splat data; rendering unlit")
+		return
+	if int(resource.get("source_point_count")) != entry.point_count:
+		push_warning(
+			"[gdgs] raster: lighting bake is for %d splats but the resource has %d; rebake it"
+			% [int(resource.get("source_point_count")), entry.point_count]
+		)
+		return
+	var built: Dictionary = DataTextures.build_lighting(
+		resource.get("splat_data"), entry.point_count
+	)
+	if not bool(built.get("ok", false)):
+		push_warning("[gdgs] raster: lighting texture build failed: %s" % str(built.get("reason", "")))
+		return
+	entry.lighting_texture = built["lighting_texture"]
+	entry.material.set_shader_parameter("splat_lighting", entry.lighting_texture)
+	entry.material.set_shader_parameter("lighting_width", int(built["lighting_width"]))
+
+func _resolve_light_rig() -> RefCounted:
+	if _light_rig_checked:
+		return _light_rig
+	_light_rig_checked = true
+	if not ResourceLoader.exists(LIGHT_RIG_PATH, "Script"):
+		return null
+	var script: Variant = load(LIGHT_RIG_PATH)
+	if script == null or not (script is GDScript) or not (script as GDScript).can_instantiate():
+		push_warning("[gdgs] raster: light rig failed to load; splats render unlit")
+		return null
+	var instance: Variant = (script as GDScript).new()
+	if instance is RefCounted:
+		_light_rig = instance
+	return _light_rig
+
+## The rig only needs some node inside the tree to find the scene root from.
+func _any_attached_node() -> Node:
+	for entry in _entries.values():
+		if entry.mmi != null and is_instance_valid(entry.mmi) and entry.mmi.is_inside_tree():
+			return entry.mmi
+	return null
 
 func _drive_entry(entry: Entry) -> void:
 	if entry.job == null or entry.mmi == null or not is_instance_valid(entry.mmi):
@@ -230,6 +337,13 @@ func _populate_entry(entry: Entry, node: Node) -> void:
 	entry.order_live = false
 	entry.last_dir_local = Vector3.ZERO
 	entry.has_kicked = false
+	# Lighting is resolved on the next driver tick, which also picks up the
+	# node's relight knobs.
+	entry.lighting_resource = null
+	entry.lighting_texture = null
+	entry.lighting_checked = false
+	entry.applied_knobs = []
+	entry.applied_rig_version = -1
 
 ## Resolve the camera whose pose drives the sort. In-game this is the node's
 ## viewport camera. In the editor it MUST be the Node3DEditor viewport's own
@@ -290,6 +404,11 @@ func _free_contents(entry: Entry) -> void:
 	entry.order_live = false
 	entry.point_count = 0
 	entry.has_kicked = false
+	entry.lighting_resource = null
+	entry.lighting_texture = null
+	entry.lighting_checked = false
+	entry.applied_knobs = []
+	entry.applied_rig_version = -1
 
 func _free_entry(entry: Entry) -> void:
 	_free_contents(entry)

@@ -33,6 +33,22 @@ const PROXY_SHADOW_CASTER_PATH := "res://addons/gdgs/runtime/lighting/proxy_shad
 	get:
 		return _relight_cast_shadows
 
+## Light the splats from the scene's Light3D nodes using the baked proxy
+## normals. Needs a `lighting` resource; ignored without one.
+@export var relight_enabled: bool = false
+## Colour floor where no light reaches. This is the "darken everything, let
+## only lit regions climb back" control: 1.0 leaves the splats at their
+## original brightness and only adds light on top.
+@export_range(0.0, 1.0, 0.01) var relight_unlit_level: float = 0.25
+## How strongly gathered light brightens the splats.
+@export_range(0.0, 4.0, 0.01) var relight_light_gain: float = 1.0
+## Ambient term, modulated by the baked ambient occlusion.
+@export var relight_ambient: Color = Color(0.25, 0.25, 0.25, 1.0)
+## Use only the spherical-harmonics DC term as the base colour. Baked
+## view-dependent specular fights new lighting; this is the closest thing the
+## data has to an albedo.
+@export var relight_dc_only: bool = false
+
 var _gaussian: GaussianResource
 var _lighting: GaussianLightingResource
 var _relight_cast_shadows := true
