@@ -35,6 +35,14 @@ var _section_bodies: Array[PanelContainer] = []
 
 
 func _init(defaults: Dictionary, proxy_summary: String) -> void:
+	# Our labels are authored in English (repo convention) and must render that
+	# way whatever locale the editor runs in. Without this, Godot auto-translates
+	# any string that happens to match one of its own editor translation keys, so
+	# a section header reading "Scene" came out localised next to an untranslated
+	# "Scene mode" row — worse than either language on its own. Propagates to
+	# children, which default to INHERIT.
+	auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
+
 	var margin := MarginContainer.new()
 	for side in ["left", "top", "right", "bottom"]:
 		margin.add_theme_constant_override("margin_%s" % side, 6)
