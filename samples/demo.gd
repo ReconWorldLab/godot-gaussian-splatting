@@ -1,8 +1,7 @@
 extends Node3D
 
-## Interactive relighting sandbox.
-##
-##   godot --path . samples/relighting_demo.tscn
+## The bundled demo: an interactive relighting sandbox, and this project's main
+## scene, so pressing F5 runs it.
 ##
 ## Everything is built in code rather than stored in the .tscn, so this file
 ## doubles as a worked example of the relighting API and the scene stays a
@@ -22,7 +21,7 @@ const GAUSSIAN_PATH := "res://samples/assets/demo.sog"
 const PIPELINE_PATH := "res://addons/gdgs/collision/pipeline/collision_pipeline.gd"
 const BAKE_JOB_PATH := "res://addons/gdgs/lighting/bake/bake_job.gd"
 
-const CACHE_PATH_TEMPLATE := "user://gdgs_relighting_demo_%d.res"
+const CACHE_PATH_TEMPLATE := "user://gdgs_demo_lighting_%d.res"
 const BAKE_SETTINGS := {
 	"auto_voxel": true,
 	"opacity_cutoff": 0.1,

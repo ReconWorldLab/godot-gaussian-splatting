@@ -72,7 +72,9 @@
 
 ### 直接试用
 
-本仓库本身就是一个 Godot 工程：克隆后用 Godot `4.3+` 直接打开仓库根目录，等待首次导入完成，运行 `samples/demo.tscn` 即可。示例场景已经配置好了 compositor effect。
+本仓库本身就是一个 Godot 工程：克隆后用 Godot `4.3+` 直接打开仓库根目录，等待首次导入完成，按 F5 即可。`samples/demo.tscn` 是主场景：一个交互式的重新打光沙盒——一盏灯绕着示例资源转，地面接住它的投影，旁边放一个普通 Godot 立方体，方便对比同一盏灯打在 splat 和真实几何体上的效果。所有选项都是一个按键，画面上有按键说明。
+
+演示会在首次运行时自行烘焙光照代理（几秒）并缓存，之后秒开。`samples/demo.gd` 用代码搭建了整个场景，同时也是 API 的完整示例。
 
 ### 安装方法
 
@@ -124,7 +126,7 @@ splat 存的是辐射亮度而非材质：没有法线、没有反照率、没�
 
 `Relight Cast Shadows` 是独立开关且默认开启：它把烘焙出的代理挂成仅投影网格，让 Gaussian 场景把真实阴影投到普通 Godot 几何体上。
 
-交互试用：`godot --path . samples/relighting_demo.tscn` 会让一盏灯绕着示例资源转，所有选项都能实时切换。该场景首次运行时自行烘焙并缓存，只有第一次需要等待。
+交互试用：内置演示（`samples/demo.tscn`，本工程的主场景）会让一盏灯绕着示例资源转，所有选项都能实时切换。
 
 **使用前请先读 [relighting.md](relighting.md)（英文）。** 重新打光无法去除拍摄时就烘进数据里的光照，splat 不接收投影阴影，且光照细节受限于代理的体素分辨率。
 
@@ -227,8 +229,8 @@ compositor effect 脚本位于 `res://addons/gdgs/runtime/compositor/gaussian_co
 - `addons/gdgs/collision`：可选的编辑器内碰撞生成模块（Inspector UI、工作线程管线、体素化 shader）。
 - `addons/gdgs/lighting`：可选的编辑器内光照代理烘焙模块（Inspector UI、工作线程烘焙管线）。仅烘焙期需要——发布的游戏只靠烘焙好的资源即可重新打光。
 - `docs`：除英文 README 外的全部文档——中文 README、changelog、贡献指南、架构说明和渲染后端对比。
-- `samples`：示例场景（`demo.tscn`、`relighting_demo.tscn`）、示例 Gaussian 资源和媒体文件。
-- `tests`：CI 使用的 headless 测试（冒烟、碰撞管线、Raster 排序器/数据纹理、后端选择器、光照烘焙与光源 rig）。
+- `samples`：演示场景（`demo.tscn` + `demo.gd`）、示例 Gaussian 资源和媒体文件。
+- `tests`：CI 使用的 headless 测试（冒烟、碰撞管线、Raster 排序器/数据纹理、后端选择器、光照烘焙与光源 rig），以及视觉 A/B 工具和它的极简参考场景。
 - `project.godot`：用于开发插件本身的工程文件；不会包含在 Asset Library 导出中。
 
 只有 `addons/` 会分发给用户，其余内容都是开发与文档配套。

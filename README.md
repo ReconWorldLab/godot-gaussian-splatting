@@ -90,7 +90,9 @@ compositor (that step is Compute-only).
 
 ### Try It Directly
 
-This repository is itself a Godot project: clone it, open the repository root in Godot `4.3+`, wait for the first import, and run `samples/demo.tscn`. The demo scene already has the compositor effect configured.
+This repository is itself a Godot project: clone it, open the repository root in Godot `4.3+`, wait for the first import, and press F5. `samples/demo.tscn` is the main scene: an interactive relighting sandbox with an orbiting light over the sample asset, a ground plane that catches its shadow, and an ordinary Godot box beside it so the same light can be compared on splats and on real geometry. Every option is a keypress — the on-screen legend lists them.
+
+The demo bakes its own lighting proxy on first run (a few seconds) and caches it, so only the first launch waits. `samples/demo.gd` builds the whole scene in code, which makes it a worked example of the API.
 
 ### Installation
 
@@ -142,7 +144,7 @@ A splat stores radiance, not material: no normal, no albedo, no occlusion. The b
 
 `Relight Cast Shadows` is independent and on by default: it mounts the baked proxy as a shadow-only mesh, so the Gaussian scene casts real shadows onto ordinary Godot geometry.
 
-Try it interactively: `godot --path . samples/relighting_demo.tscn` orbits a light over the sample asset with live toggles for every option. It bakes its own proxy on first run and caches it, so only the first launch waits.
+Try it interactively: the bundled demo (`samples/demo.tscn`, this project's main scene) orbits a light over the sample asset with live toggles for every option.
 
 **Read [docs/relighting.md](docs/relighting.md) before using this.** Relighting a capture cannot remove the light that was baked into it, splats do not receive cast shadows, and lighting detail is limited to the proxy's voxel resolution.
 
@@ -245,8 +247,8 @@ This importer is meant for Gaussian Splatting style assets, not generic point cl
 - `addons/gdgs/collision`: Optional editor-side collision generation (inspector UI, worker pipeline, voxelizer shader).
 - `addons/gdgs/lighting`: Optional editor-side lighting-proxy bake (inspector UI, worker bake pipeline). Bake-time only — shipped games relight from the baked resource without it.
 - `docs`: All non-README documentation — Chinese README, changelog, contributing guide, architecture notes, and the rendering-backend comparison.
-- `samples`: Demo scenes (`demo.tscn`, `relighting_demo.tscn`), sample Gaussian assets, and media.
-- `tests`: Headless tests used by CI (smoke, collision pipeline, Raster sorter/data-texture, backend selector, lighting bake and light rig).
+- `samples`: The demo scene (`demo.tscn` + `demo.gd`), sample Gaussian assets, and media.
+- `tests`: Headless tests used by CI (smoke, collision pipeline, Raster sorter/data-texture, backend selector, lighting bake and light rig), plus the visual A/B harness and its minimal reference scene.
 - `project.godot`: Development project for working on the plugin itself; excluded from Asset Library exports.
 
 Only `addons/` ships to users; everything else is development and documentation support.

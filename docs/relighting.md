@@ -22,19 +22,31 @@ The technique cannot remove light that was baked in at capture time.
 
 ## Interactive demo
 
-```
-godot --path . samples/relighting_demo.tscn
-```
+`samples/demo.tscn` is this project's main scene, so opening the repository in
+Godot and pressing F5 runs it.
 
-An orbiting light over `demo.sog`, on a ground plane with an ordinary Godot box
-beside it so the same light can be compared on both. Keys toggle relighting,
-proxy shadow casting and DC-only, switch between directional/omni/spot, and
-adjust the unlit level and gain live.
+An orbiting light over `demo.sog`, on a ground plane that catches its shadow,
+with an ordinary Godot box beside it so the same light can be compared on
+splats and on real geometry.
+
+| Key | |
+| --- | --- |
+| `Space` | relighting on/off |
+| `S` | proxy shadow casting |
+| `D` | DC-only base colour |
+| `1` `2` `3` | directional / omni / spot |
+| `A` | auto-orbit the light |
+| `G` | ground and reference box |
+| `[` `]` | unlit level |
+| `-` `=` | light gain |
+| arrows | move the light |
+| drag / wheel | orbit / zoom the camera |
+| `H` `Esc` | hide the legend / quit |
 
 The scene bakes its own proxy on first run — a bake for `demo.sog` is several
 megabytes and this repository keeps large binaries out of git — and caches it
-under `user://`, so only the first launch waits. `samples/relighting_demo.gd`
-builds everything in code, which also makes it a worked example of the API.
+under `user://`, so only the first launch waits. `samples/demo.gd` builds
+everything in code, which also makes it a worked example of the API.
 
 ## Baking a proxy
 

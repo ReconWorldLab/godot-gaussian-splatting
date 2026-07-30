@@ -6,8 +6,13 @@ The repository now mirrors the plugin's shipping layout.
 
 - `addons/gdgs`: The plugin itself.
 - `docs`: All non-README documentation (Chinese README, changelog, contributing guide, this file).
-- `samples`: Demo scene, example assets, and media.
-- `tests`: Headless tests used by CI (smoke, collision pipeline, Raster sorter/data textures, backend selector, lighting bake and light rig).
+- `samples`: The demo scene (an interactive relighting sandbox built in code by
+  `demo.gd`), example assets, and media.
+- `tests`: Headless tests used by CI (smoke, collision pipeline, Raster sorter/data textures, backend selector, lighting bake and light rig),
+  the visual A/B harness `capture_demo.gd`, and `ab_reference.tscn` — the
+  minimal, deterministic scene that harness renders. It is kept apart from the
+  sample demo on purpose: a regression gate must not depend on a scene with a
+  moving light, a HUD and a startup bake.
 - `project.godot`: Development project for working on the plugin; excluded from Asset Library exports.
 
 ## Plugin Modules

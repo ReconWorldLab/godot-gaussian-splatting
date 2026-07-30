@@ -1,7 +1,11 @@
 extends SceneTree
 
-# Visual A/B harness: renders samples/demo.tscn with a chosen backend at 16:9
+# Visual A/B harness: renders the reference scene with a chosen backend at 16:9
 # into a PNG, so Raster and Compute output can be compared numerically.
+#
+# It deliberately uses tests/ab_reference.tscn rather than samples/demo.tscn:
+# a regression gate needs a minimal, deterministic scene, and the sample demo
+# is an interactive sandbox with a moving light, a HUD and a startup bake.
 #
 #   godot --path . --script res://tests/capture_demo.gd -- <raster|compute> <out.png> [angle_deg]
 #
@@ -31,7 +35,7 @@ func _initialize() -> void:
 	# Same scene for both backends (identical env/camera/tonemap) so images are
 	# pixel-comparable. Under the Raster backend the scene's CompositorEffect
 	# no-ops (no compute manager instance), so it is safe to keep.
-	var demo := (load("res://samples/demo.tscn") as PackedScene).instantiate()
+	var demo := (load("res://tests/ab_reference.tscn") as PackedScene).instantiate()
 	_vp.add_child(demo)
 	var cam := demo.get_node_or_null("Camera3D") as Camera3D
 	if cam != null and angle != 0.0:
