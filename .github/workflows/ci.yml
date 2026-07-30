@@ -48,3 +48,8 @@ jobs:
         run: |
           ./godot --headless --path . --script tests/backend_test.gd 2>&1 | tee backend.log
           grep -q "backend tests passed" backend.log
+
+      - name: Lighting bake and light rig tests
+        run: |
+          ./godot --headless --path . --script tests/lighting_test.gd 2>&1 | tee lighting.log
+          grep -q "lighting tests passed" lighting.log

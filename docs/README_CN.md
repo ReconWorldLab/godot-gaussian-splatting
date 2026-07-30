@@ -4,7 +4,7 @@
 
 [English README](../README.md)
 
-当前插件版本：`3.2.0-beta`
+当前插件版本：`3.3.0`
 
 ## 新闻
 
@@ -113,9 +113,28 @@
 
 碰撞模块是可选且故障隔离的：如果 `addons/gdgs/collision` 缺失或加载失败，插件只会打印警告，渲染完全不受影响；需要纯渲染安装时可直接删除该目录。
 
+### 重新打光
+
+1. 选中一个已赋值 Gaussian 资源的 `GaussianSplatNode`。
+2. 在 Inspector 中找到 **GDGS Lighting** 区块，按需调整参数后点击 **Bake Lighting Proxy**。
+3. 在弹出的对话框中保存为 `.res`，随后会自动赋给节点的 `lighting` 属性。
+4. 勾选节点 **Relighting** 分组下的 **Relight Enabled**，并在场景中添加一个 `Light3D`。
+
+splat 存的是辐射亮度而非材质：没有法线、没有反照率、没有遮蔽。烘焙过程从*光照代理*——碰撞模块用的同一套体素场——推导出这些缺失的几何信息，给每个 splat 一个表面法线、一个环境遮蔽值和一个置信度。运行时颜色按 `unlit_level + gain × 辐照度` 缩放，所以开启后整体变暗、只有被照到的地方提亮。方向光、点光、聚光都支持，运行时可自由移动，两个渲染后端使用完全相同的数学。
+
+`Relight Cast Shadows` 是独立开关且默认开启：它把烘焙出的代理挂成仅投影网格，让 Gaussian 场景把真实阴影投到普通 Godot 几何体上。
+
+**使用前请先读 [relighting.md](relighting.md)（英文）。** 重新打光无法去除拍摄时就烘进数据里的光照，splat 不接收投影阴影，且光照细节受限于代理的体素分辨率。
+
 ## 0x03 版本记录
 
-当前版本为 `3.2.0-beta`。完整的逐版本记录见 [CHANGELOG.md](CHANGELOG.md)（英文）。
+当前版本为 `3.3.0`。完整的逐版本记录见 [CHANGELOG.md](CHANGELOG.md)（英文）。
+
+`3.3.0` 亮点：
+
+- **重新打光**：场景中的 `Light3D` 照亮 splat，法线与环境遮蔽来自烘焙的光照代理。最多 8 盏灯、运行时可自由移动、两个渲染后端表现一致，单光源开销约 +4.7% 帧时间。
+- 烘焙出的代理还能让 Gaussian 场景把**真实阴影**投射到普通 Godot 几何体上。
+- 烘焙产物为**每 splat 4 字节**，导入的 Gaussian 资源完全不受影响，不使用时零开销。
 
 `3.2.0-beta` 亮点：
 
@@ -138,6 +157,7 @@
 - 支持编辑器内预览和 gizmo 操作。
 - 内置 alpha、颜色、GS 深度、场景深度和深度剔除遮罩等调试视图。
 - 在编辑器中从 Gaussian 数据生成静态碰撞（`StaticBody3D` + `ConcavePolygonShape3D`），支持 faces/smooth 网格、CPU/私有 GPU 体素化、室内/室外场景模式、胶囊 carve 与网格导出。
+- 用烘焙自光照代理的法线与环境遮蔽，让场景灯光重新照亮 splat；并让 splat 场景把阴影投射到普通几何体上。
 
 ## 0x05 场景说明
 
@@ -203,9 +223,10 @@ compositor effect 脚本位于 `res://addons/gdgs/runtime/compositor/gaussian_co
 - `addons/gdgs/runtime`：运行时节点、资源、后端接缝（`render/backend`）、Compute 后端（`render/compute` + `compositor` + `debug`）与 Raster 后端（`render/raster`）。
 - `addons/gdgs/editor`：编辑器侧扩展，例如 gizmo。
 - `addons/gdgs/collision`：可选的编辑器内碰撞生成模块（Inspector UI、工作线程管线、体素化 shader）。
+- `addons/gdgs/lighting`：可选的编辑器内光照代理烘焙模块（Inspector UI、工作线程烘焙管线）。仅烘焙期需要——发布的游戏只靠烘焙好的资源即可重新打光。
 - `docs`：除英文 README 外的全部文档——中文 README、changelog、贡献指南、架构说明和渲染后端对比。
 - `samples`：示例场景（`demo.tscn`）、示例 Gaussian 资源和媒体文件。
-- `tests`：CI 使用的 headless 测试（冒烟、碰撞管线、Raster 排序器/数据纹理、后端选择器）。
+- `tests`：CI 使用的 headless 测试（冒烟、碰撞管线、Raster 排序器/数据纹理、后端选择器、光照烘焙与光源 rig）。
 - `project.godot`：用于开发插件本身的工程文件；不会包含在 Asset Library 导出中。
 
 只有 `addons/` 会分发给用户，其余内容都是开发与文档配套。
@@ -216,6 +237,7 @@ compositor effect 脚本位于 `res://addons/gdgs/runtime/compositor/gaussian_co
 - **Compute** 后端仅面向桌面 `Forward Plus`，依赖 Godot 的 compositor 与 compute 管线，因此无法在 `Mobile` / `Compatibility` 渲染器上运行；这些环境请使用 **Raster** 后端（见[渲染后端](#渲染后端)）。
 - **Raster** 后端采用全局（非每 tile 精确）的从后到前排序，可能比相机滞后一两帧，快速旋转时会有轻微弹跳。
 - 在 4K 显示器下，如果显存压力过高，可能会出现渲染错误或画面异常；将 Godot 视口分辨率调低后通常会有所缓解。该限制来源于 [issue #3](https://github.com/ReconWorldLab/godot-gaussian-splatting/issues/3)。
+- 重新打光是对烘焙辐射亮度的调制，因此无法去除拍摄时就进入数据的光照；splat 通过代理**投射**阴影，但不**接收**阴影。完整清单见 [relighting.md](relighting.md#limitations)（英文）。
 - 当前渲染管理器仍以共享的 root 级运行时管理器存在，复杂的编辑器多场景或多视口工作流仍需要进一步验证。
 - 标准 `.ply` 仅支持 Gaussian Splat 所需的二进制小端布局，不支持任意点云属性结构。
 - `.sog` 当前仅支持 `v2` 格式。

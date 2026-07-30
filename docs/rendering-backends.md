@@ -20,6 +20,7 @@ editor/game restart. The names follow PlayCanvas's renderer constants
 | VRAM per splat | 240 B splat buffer plus per-frame tile/sort buffers (~2.8 GB at 6M splats) | 144 B in data textures (FP32 core + FP16 SH) plus a small order texture |
 | Scene setup | Requires a `CompositorEffect` on the scene compositor | Add the node, assign the resource — nothing else |
 | Colour handling | Blends SH colours in sRGB space, converts to linear once at composite time | Converts each splat's colour to linear and blends in the scene's linear pass (`Forward Plus`/`Mobile`); on `Compatibility` it blends directly in sRGB, like Compute |
+| Relighting | Supported, identical maths (per-splat, in the projection pass) | Supported, identical maths (per-splat, in `vertex()`) |
 
 ## How Compute Renders
 
@@ -102,7 +103,31 @@ Practical guidance:
   demo scene the backends differ by ~1.5/255 mean pixel value, concentrated in
   soft splat edges.
 - Compute's tile pass culls sub-pixel splats slightly more aggressively.
+- **The ~1.5/255 figure is not a constant.** It measures the blend-space
+  difference above, so it grows with image brightness: relighting a scene to
+  full brightness widens it to ~6.4/255 with both backends provably correct.
+  To compare the backends' *maths* rather than their blend space, pin
+  relighting to an identity multiplier (`relight_unlit_level = 1`,
+  `relight_light_gain = 0`); the two then sit at 1.4786/255 against a
+  1.4781/255 unlit baseline.
 - In the editor, Raster's sort follows the first 3D editor viewport's camera.
+
+## Relighting
+
+Both backends implement [relighting](relighting.md) with the same maths, kept
+in parity the same way the covariance projection is: two deliberate copies with
+cross-referencing comments, never a shared source. Lighting is evaluated once
+per splat — in `vertex()` for Raster, in the projection compute pass for
+Compute — and the colour is multiplied in sRGB space in both, before any linear
+conversion, so the backends stay numerically comparable.
+
+Letting Godot light the Raster splats natively (dropping `unshaded`, writing
+`NORMAL`, and getting shadow reception for free) was implemented and measured
+rather than assumed. It works, including cast shadows, but `light()` is
+fragment-stage and a splat cloud has 10–50× overdraw, so it costs 2.5–3.9× the
+frame time — the ratio rising with overdraw — and it could never apply to the
+Compute backend at all. It is therefore not shipped, and splats do not receive
+cast shadows on either backend.
 
 ## Fault Isolation
 

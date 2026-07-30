@@ -4,10 +4,11 @@ Maintainer: ReconWorldLab
 
 [中文 README](docs/README_CN.md)
 
-Current plugin version: `3.2.0-beta`
+Current plugin version: `3.3.0`
 
 ## News
 
+- 2026-07-30: Version `3.3.0` adds **relighting**: bake a lighting proxy from the Gaussian data and the scene's lights will shade the splats, darkening everything to a floor so only lit regions brighten. The proxy also makes the splat scene cast real shadows onto ordinary geometry. Read the [limitations](docs/relighting.md#limitations) first — splats store radiance, not material, so baked-in light cannot be removed. See [docs/relighting.md](docs/relighting.md).
 - 2026-07-24: Version `3.2.0-beta` introduces dual rendering backends: alongside the original **Compute** path, the new **Raster** ("sticker") backend renders splats through Godot's standard pipeline — bringing `Mobile` and `Compatibility` renderer support, hardware depth-tested occlusion with zero tuning parameters, and materially lower VRAM. This is a **beta release**: the Raster backend is new and feedback is very welcome. See [Rendering Backends](#rendering-backends) and [docs/rendering-backends.md](docs/rendering-backends.md).
 - 2026-07-16: Version `3.1.0` adds editor-side collision generation: select a `GaussianSplatNode` and generate a `StaticBody3D` collision body directly from the Gaussian data. The pipeline is a GDScript port of the collision approach in [PlayCanvas splat-transform](https://github.com/playcanvas/splat-transform).
 - 2026-04-20: Featured by [GameFromScratch in an article](https://gamefromscratch.com/gaussian-splats-in-godot/).
@@ -130,9 +131,28 @@ Physics notes: the generated shape is a hollow triangle-mesh shell with `backfac
 
 The collision module is optional and fault-isolated: if `addons/gdgs/collision` is missing or fails to load, the plugin logs a warning and rendering is unaffected, so you can delete that folder for a rendering-only installation.
 
+### Relighting
+
+1. Select a `GaussianSplatNode` that has a Gaussian resource assigned.
+2. In the Inspector, find the **GDGS Lighting** block, adjust the settings if needed, and click **Bake Lighting Proxy**.
+3. Save the result as a `.res` when prompted — it is then assigned to the node's `lighting` property.
+4. Tick **Relight Enabled** in the node's **Relighting** group and add a `Light3D` to the scene.
+
+A splat stores radiance, not material: no normal, no albedo, no occlusion. The bake derives that missing geometry from a *lighting proxy* — the same voxel field the collision module contours — and gives every splat a surface normal, an ambient-occlusion term and a confidence value. At runtime the colour is scaled by `unlit_level + gain × irradiance`, so enabling relighting darkens everything and lets only lit regions climb back up. Directional, omni and spot lights all work, they may move at runtime, and both rendering backends implement the same maths.
+
+`Relight Cast Shadows` is independent and on by default: it mounts the baked proxy as a shadow-only mesh, so the Gaussian scene casts real shadows onto ordinary Godot geometry.
+
+**Read [docs/relighting.md](docs/relighting.md) before using this.** Relighting a capture cannot remove the light that was baked into it, splats do not receive cast shadows, and lighting detail is limited to the proxy's voxel resolution.
+
 ## 0x03 Version History
 
-The current version is `3.2.0-beta`. The full per-version history lives in [docs/CHANGELOG.md](docs/CHANGELOG.md).
+The current version is `3.3.0`. The full per-version history lives in [docs/CHANGELOG.md](docs/CHANGELOG.md).
+
+Highlights of `3.3.0`:
+
+- **Relighting**: the scene's `Light3D` nodes shade the splats, using surface normals and ambient occlusion baked from a lighting proxy. Up to eight lights, freely movable at runtime, identical on both rendering backends, at +4.7% frame time for one light.
+- A baked proxy also lets the Gaussian scene **cast real shadows** onto ordinary Godot geometry.
+- Bake artifacts are **4 bytes per splat**; the imported Gaussian resource is untouched, so relighting costs nothing when unused.
 
 Highlights of `3.2.0-beta`:
 
@@ -155,6 +175,7 @@ Highlights of `3.2.0-beta`:
 - Preview in the editor and manipulate the node with a gizmo.
 - Built-in debug views for alpha, color, GS depth, scene depth, and depth rejection.
 - Generate static collision (`StaticBody3D` + `ConcavePolygonShape3D`) from Gaussian data in the editor, with faces/smooth meshing, CPU/private-GPU voxelization, interior/outdoor scene modes, capsule carve, and mesh export.
+- Relight splats from the scene's lights using normals and ambient occlusion baked from a lighting proxy, and cast shadows from the splat scene onto ordinary geometry.
 
 ## 0x05 Scene Setup Notes
 
@@ -220,9 +241,10 @@ This importer is meant for Gaussian Splatting style assets, not generic point cl
 - `addons/gdgs/runtime`: Runtime nodes, resources, the backend seam (`render/backend`), the Compute backend (`render/compute` + `compositor` + `debug`), and the Raster backend (`render/raster`).
 - `addons/gdgs/editor`: Editor-only integrations such as gizmos.
 - `addons/gdgs/collision`: Optional editor-side collision generation (inspector UI, worker pipeline, voxelizer shader).
+- `addons/gdgs/lighting`: Optional editor-side lighting-proxy bake (inspector UI, worker bake pipeline). Bake-time only — shipped games relight from the baked resource without it.
 - `docs`: All non-README documentation — Chinese README, changelog, contributing guide, architecture notes, and the rendering-backend comparison.
 - `samples`: Demo scene (`demo.tscn`), sample Gaussian assets, and media.
-- `tests`: Headless tests used by CI (smoke, collision pipeline, Raster sorter/data-texture, backend selector).
+- `tests`: Headless tests used by CI (smoke, collision pipeline, Raster sorter/data-texture, backend selector, lighting bake and light rig).
 - `project.godot`: Development project for working on the plugin itself; excluded from Asset Library exports.
 
 Only `addons/` ships to users; everything else is development and documentation support.
@@ -233,6 +255,7 @@ Only `addons/` ships to users; everything else is development and documentation 
 - The **Compute** backend targets desktop `Forward Plus` only and depends on Godot's compositor and compute pipeline, so it does not run on the `Mobile` or `Compatibility` renderers. Use the **Raster** backend there (see [Rendering Backends](#rendering-backends)).
 - The **Raster** backend uses a global (not per-tile-exact) back-to-front order that can lag the camera a frame or two, so fast rotations may show mild popping.
 - On 4K displays, rendering errors or visual glitches may occur when GPU memory pressure becomes too high. Reducing the Godot viewport resolution may help. Reported in [issue #3](https://github.com/ReconWorldLab/godot-gaussian-splatting/issues/3).
+- Relighting modulates baked radiance, so it cannot remove light that was captured into the asset, and splats **cast** shadows through the proxy but do not **receive** them. Full list in [docs/relighting.md](docs/relighting.md#limitations).
 - The render manager currently lives as a shared root-level runtime manager, so very complex editor multi-scene or multi-viewport workflows may still need additional validation.
 - Standard `.ply` support expects binary little-endian Gaussian Splat data, not arbitrary point cloud layouts.
 - `.sog` support currently targets version `2` archives only.
