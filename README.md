@@ -142,6 +142,8 @@ A splat stores radiance, not material: no normal, no albedo, no occlusion. The b
 
 `Relight Cast Shadows` is independent and on by default: it mounts the baked proxy as a shadow-only mesh, so the Gaussian scene casts real shadows onto ordinary Godot geometry.
 
+Try it interactively: `godot --path . samples/relighting_demo.tscn` orbits a light over the sample asset with live toggles for every option. It bakes its own proxy on first run and caches it, so only the first launch waits.
+
 **Read [docs/relighting.md](docs/relighting.md) before using this.** Relighting a capture cannot remove the light that was baked into it, splats do not receive cast shadows, and lighting detail is limited to the proxy's voxel resolution.
 
 ## 0x03 Version History
@@ -243,7 +245,7 @@ This importer is meant for Gaussian Splatting style assets, not generic point cl
 - `addons/gdgs/collision`: Optional editor-side collision generation (inspector UI, worker pipeline, voxelizer shader).
 - `addons/gdgs/lighting`: Optional editor-side lighting-proxy bake (inspector UI, worker bake pipeline). Bake-time only — shipped games relight from the baked resource without it.
 - `docs`: All non-README documentation — Chinese README, changelog, contributing guide, architecture notes, and the rendering-backend comparison.
-- `samples`: Demo scene (`demo.tscn`), sample Gaussian assets, and media.
+- `samples`: Demo scenes (`demo.tscn`, `relighting_demo.tscn`), sample Gaussian assets, and media.
 - `tests`: Headless tests used by CI (smoke, collision pipeline, Raster sorter/data-texture, backend selector, lighting bake and light rig).
 - `project.godot`: Development project for working on the plugin itself; excluded from Asset Library exports.
 

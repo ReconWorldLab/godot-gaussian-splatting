@@ -20,6 +20,22 @@ only lit regions climb back up**.
 Read [Limitations](#limitations) before deciding whether this suits your asset.
 The technique cannot remove light that was baked in at capture time.
 
+## Interactive demo
+
+```
+godot --path . samples/relighting_demo.tscn
+```
+
+An orbiting light over `demo.sog`, on a ground plane with an ordinary Godot box
+beside it so the same light can be compared on both. Keys toggle relighting,
+proxy shadow casting and DC-only, switch between directional/omni/spot, and
+adjust the unlit level and gain live.
+
+The scene bakes its own proxy on first run — a bake for `demo.sog` is several
+megabytes and this repository keeps large binaries out of git — and caches it
+under `user://`, so only the first launch waits. `samples/relighting_demo.gd`
+builds everything in code, which also makes it a worked example of the API.
+
 ## Baking a proxy
 
 1. Select a `GaussianSplatNode` with a Gaussian resource assigned.
@@ -115,9 +131,6 @@ These are inherent to relighting baked radiance. No setting works around them.
   splats behind it will not darken them. Letting Godot light the splats
   natively was measured and would deliver this, but costs 2.5–3.9× the frame
   time, rising with overdraw. See [Rendering Backends](rendering-backends.md).
-- **No bundled demo.** A baked proxy for the sample asset is several megabytes,
-  and this repository keeps large binaries out of git. Bake one yourself with
-  the steps above; `samples/assets/demo.sog` takes a few seconds.
 
 ## Fault isolation
 

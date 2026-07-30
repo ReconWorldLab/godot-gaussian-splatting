@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://samples/relighting_demo.gd" id="1_relight_demo"]
+
+[node name="RelightingDemo" type="Node3D"]
+script = ExtResource("1_relight_demo")
