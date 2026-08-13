@@ -167,7 +167,7 @@ Highlights of `3.2.0-beta`:
 
 ## 0x04 Features
 
-- Import supported Gaussian assets from `.ply`, `.compressed.ply`, `.splat`, and `.sog`.
+- Import supported Gaussian assets from `.ply`, `.compressed.ply`, `.splat`, `.sog`, and `glb`.
 - Render through either of two interchangeable backends — tile-based **Compute** or standard-pipeline **Raster** — selected by one project setting, with automatic fallback.
 - Run on the `Mobile` and `Compatibility` renderers through the Raster backend.
 - Convert different source formats into a shared GPU-ready Gaussian resource.
@@ -237,6 +237,10 @@ The importer supports binary little-endian Gaussian Splat `.ply` files with thes
 - Supports SOG version `2` archives.
 
 This importer is meant for Gaussian Splatting style assets, not generic point cloud files.
+
+### `.glb`
+
+- Supports uncompressed glTF files using the `KHR_gaussian_splatting` extension.
 
 ## 0x08 Repository Layout
 
