@@ -325,7 +325,10 @@ void main() {
 
 	const uint buffer_size = atomicAdd(sort_buffer_size, num_tiles_touched);
 	uint sort_buffer_offset = buffer_size;
-	vec3 view_dir = normalize(world_pos.xyz - camera_pos);
+	// SH coefficients live in the splat's object space, so the view direction
+	// must be brought into that space (issue #29). inverse(), not transpose():
+	// object_linear may carry non-uniform scale.
+	vec3 view_dir = normalize(inverse(object_linear) * (world_pos.xyz - camera_pos));
 
 	vec3 base_color = get_color(view_dir, splat.sh_coefficients);
 	vec4 relight = instance_relight[instance_id * 2u];

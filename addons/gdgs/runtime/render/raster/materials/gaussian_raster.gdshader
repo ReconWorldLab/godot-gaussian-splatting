@@ -348,7 +348,11 @@ void vertex() {
 					c[j * 4 + 2] = sh_texel.z;
 					c[j * 4 + 3] = sh_texel.w;
 				}
-				vec3 view_dir = normalize(world_pos.xyz - CAMERA_POSITION_WORLD);
+				// SH coefficients live in the splat's object space, so the view
+				// direction must be brought into that space (issue #29; parity
+				// with gsplat_projection.glsl). inverse(), not transpose():
+				// object_linear may carry non-uniform scale.
+				vec3 view_dir = normalize(inverse(object_linear) * (world_pos.xyz - CAMERA_POSITION_WORLD));
 				// AA: preserve energy lost/gained by the 0.3 dilation.
 				float eff_opacity = opacity;
 				if (aa_compensation) {
