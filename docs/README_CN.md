@@ -149,7 +149,7 @@ splat 存的是辐射亮度而非材质：没有法线、没有反照率、没�
 
 ## 0x04 功能特性
 
-- 支持导入 `.ply`、`.compressed.ply`、`.splat`、`.sog` 和 `.glb` 格式的 Gaussian 资源。
+- 支持导入 `.ply`、`.compressed.ply`、`.splat`、`.sog`、`.glb` 和 `.usdz` 格式的 Gaussian 资源。
 - 提供两个可互换的渲染后端——基于 tile 的 **Compute** 与标准管线的 **Raster**——由一个项目设置选择，并支持自动回退。
 - 通过 Raster 后端支持 `Mobile` 和 `Compatibility` 渲染器。
 - 将不同输入格式统一转换为共享的 GPU 可用 Gaussian 资源。
@@ -223,6 +223,10 @@ compositor effect 脚本位于 `res://addons/gdgs/runtime/compositor/gaussian_co
 ### `.glb`
 
 - 支持使用 `KHR_gaussian_splatting` 扩展的未压缩 glTF 文件。
+
+### `.usdz`
+
+- 支持 NuRec 风格的 USDZ 归档（Scaniverse / NVIDIA Omniverse 导出）：ZIP 内包含 USD 场景描述和一个 gzip 压缩的 MessagePack `.nurec` 载荷，Gaussian 张量以 float16 存储。
 
 ## 0x08 仓库结构
 

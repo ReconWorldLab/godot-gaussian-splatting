@@ -167,7 +167,7 @@ Highlights of `3.2.0-beta`:
 
 ## 0x04 Features
 
-- Import supported Gaussian assets from `.ply`, `.compressed.ply`, `.splat`, `.sog`, and `glb`.
+- Import supported Gaussian assets from `.ply`, `.compressed.ply`, `.splat`, `.sog`, `glb`, and `.usdz`.
 - Render through either of two interchangeable backends — tile-based **Compute** or standard-pipeline **Raster** — selected by one project setting, with automatic fallback.
 - Run on the `Mobile` and `Compatibility` renderers through the Raster backend.
 - Convert different source formats into a shared GPU-ready Gaussian resource.
@@ -241,6 +241,10 @@ This importer is meant for Gaussian Splatting style assets, not generic point cl
 ### `.glb`
 
 - Supports uncompressed glTF files using the `KHR_gaussian_splatting` extension.
+
+### `.usdz`
+
+- Supports NuRec-style USDZ archives (Scaniverse / NVIDIA Omniverse exports): a ZIP holding a USD scene graph plus a gzip-compressed MessagePack `.nurec` payload with float16 Gaussian tensors.
 
 ## 0x08 Repository Layout
 
