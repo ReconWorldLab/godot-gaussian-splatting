@@ -101,7 +101,10 @@ static func _candidate_order(setting: String) -> Array:
 static func _compute_preferred() -> bool:
 	if RenderingServer.get_rendering_device() == null:
 		return false
-	var method := str(ProjectSettings.get_setting("rendering/renderer/rendering_method", "forward_plus"))
+	# Use the active rendering method rather than the raw project setting: the
+	# raw value ignores platform feature overrides (e.g. rendering_method.mobile),
+	# which made Auto pick Compute on mobile where only Raster can render.
+	var method := RenderingServer.get_current_rendering_method()
 	return method == "forward_plus"
 
 static func _instantiate(kind: String) -> RefCounted:
